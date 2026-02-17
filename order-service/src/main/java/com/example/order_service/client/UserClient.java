@@ -10,7 +10,7 @@ public class UserClient {
 
     public String getUser() {
         return restTemplate.getForObject(
-                "http://localhost:8080/user",
+                "http://user-service:8080/user",
                 String.class
         );
     }
