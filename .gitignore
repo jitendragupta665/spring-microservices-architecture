@@ -1,0 +1,111 @@
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+pom.xml.bak
+release.properties
+dependency-reduced-pom.xml
+.flattened-pom.xml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.iml
+*.iws
+*.ipr
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Runtime
+*.log
+*.pid
+
+# Gradle
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Spring Boot
+.env
+.env.local
+.env.*.local
+application-local.properties
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Node (if applicable)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+
+# Package management
+*.lock
+!package-lock.json
+
+# IDE backups
+*.bak
+*.orig
+
+# System files
+.AppleDouble
+.LSOverride
+*.swp
+.viminfo
+
+# Custom patterns
+.locally-uncomitted/
