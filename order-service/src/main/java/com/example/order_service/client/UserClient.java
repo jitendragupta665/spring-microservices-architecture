@@ -6,11 +6,15 @@ import org.springframework.web.client.RestTemplate;
 @Component
 public class UserClient {
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public UserClient(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     public String getUser() {
         return restTemplate.getForObject(
-                "http://user-service:8080/user",
+                "http://USER-SERVICE/user",
                 String.class
         );
     }
