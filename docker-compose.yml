@@ -1,0 +1,34 @@
+services:
+
+  eureka:
+    build: ./discovery-server
+    container_name: eureka
+    ports:
+      - "8761:8761"
+
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    depends_on:
+      - eureka
+    ports:
+      - "8080:8080"
+
+  order-service:
+    build: ./order-service
+    container_name: order-service
+    depends_on:
+      - eureka
+      - user-service
+    ports:
+      - "8081:8081"
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    depends_on:
+      - eureka
+      - user-service
+      - order-service
+    ports:
+      - "8085:8085"
