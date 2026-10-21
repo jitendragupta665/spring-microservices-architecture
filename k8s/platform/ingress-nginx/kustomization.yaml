@@ -1,7 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# The kind provider manifest already pins the controller to the node labelled
-# ingress-ready=true (the control-plane, which owns hostPort 80/443 via kind-cluster.yaml).
+# The controller uses hostPort 80/443, and only the control-plane node publishes those ports to
+# the laptop (extraPortMappings in k8s/kind-cluster.yaml, node label ingress-ready=true).
+# Upstream's kind manifest dropped that nodeSelector after v1.12, so we pin it ourselves below.
 resources:
   - deploy.yaml
 # Job spec.template is immutable, so Argo CD cannot patch these Jobs in place
@@ -18,3 +19,10 @@ patches:
         value:
           argocd.argoproj.io/hook: Sync
           argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+  - target:
+      kind: Deployment
+      name: ingress-nginx-controller
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector/ingress-ready
+        value: "true"
