@@ -32,10 +32,10 @@ run() { if $APPLY; then "$@"; else echo "  [dry-run] $*"; fi; }
 # ---- 1. build the KEEP set -------------------------------------------------
 in_use=$(kubectl get pods -A -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' \
          | sed 's#^docker.io/library/##' | sort -u)
-pinned=""
-if [ -f "$KUSTOMIZATION" ]; then
-  pinned=$(awk '/- name:/{n=$3} /newTag:/{gsub(/"/,"",$2); print n":"$2}' "$KUSTOMIZATION")
-fi
+# Read the pin from the LATEST main (fetched), not from this run's checkout: an older run
+# that finishes after a newer merge must still protect the newer pinned tag.
+pinned=$( (git show "origin/main:$KUSTOMIZATION" 2>/dev/null || cat "$KUSTOMIZATION" 2>/dev/null || true) \
+          | awk '/- name:/{n=$3} /newTag:/{gsub(/"/,"",$2); print n":"$2}')
 recent=$(git log --first-parent -n "$KEEP" --format=%H origin/main 2>/dev/null \
          || git log --first-parent -n "$KEEP" --format=%H HEAD)
 newest=""
@@ -61,7 +61,10 @@ for node in $(kind get nodes --name "$CLUSTER"); do
   echo "== node $node"
   for img in $(docker exec "$node" crictl images | awk 'NR>1{print $1":"$2}' \
                | sed 's#^docker.io/library/##' | grep -E "^($(echo $SERVICES | tr ' ' '|')):"); do
-    is_kept "$img" || run docker exec "$node" crictl rmi "docker.io/library/$img"
+    # NOT `crictl rmi`: CRI RemoveImage deletes the image ID with ALL its tags, which would also
+    # remove a kept tag pointing at the same (unchanged) image. `ctr images rm` deletes only
+    # this one name; containerd garbage-collects the content once no name references it.
+    is_kept "$img" || run docker exec "$node" ctr -n k8s.io images rm "docker.io/library/$img"
   done
 done
 
