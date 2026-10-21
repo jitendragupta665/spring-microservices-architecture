@@ -61,6 +61,17 @@
       ],
       "datasourceTemplate": "maven",
       "depNameTemplate": "org.freemarker:freemarker"
+    },
+    {
+      "description": "Scanner images pinned in CI env vars (TRIVY_IMAGE, GITLEAKS_IMAGE): image:tag@sha256:digest. Renovate proposes new tags and refreshed digests like any other image.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)\\.github/workflows/[^/]+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "_IMAGE: (?<depName>[a-z0-9./_-]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
