@@ -15,6 +15,13 @@ COPY src ./src
 # artifact on disk so two builds never write the same file at the same time.
 RUN --mount=type=cache,target=/root/.m2 mvn -q -Daether.syncContext.named.factory=file-lock -Daether.syncContext.named.nameMapper=file-gav package
 
+# ---------- Export-only stage: test coverage report ----------
+# CI runs `docker build --target coverage --output type=local,dest=...` to copy the CSV out.
+# The build stage is reused from cache, so this costs seconds. The runtime image below
+# (the default, last stage) never contains it.
+FROM scratch AS coverage
+COPY --from=build /src/target/site/jacoco/jacoco.csv /jacoco.csv
+
 # ---------- Stage 2: runtime image (only a JRE + the JAR) ----------
 FROM eclipse-temurin:21-jre
 WORKDIR /app

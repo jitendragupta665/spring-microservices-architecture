@@ -53,6 +53,8 @@
     <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
     <jackson-bom.version>3.1.7</jackson-bom.version>
     <freemarker.version>2.3.35</freemarker.version>
+    <!-- Test coverage tool (not managed by Spring Boot's BOM; Renovate tracks this property). -->
+    <jacoco.version>0.8.15</jacoco.version>
   </properties>
 
   <dependencyManagement>
@@ -67,4 +69,30 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
+
+  <build>
+    <plugins>
+      <!-- JaCoCo measures which lines and branches the tests actually execute.
+           prepare-agent: attaches a Java agent to the test JVM that records executed code.
+           report: turns that record into target/site/jacoco/ (HTML for people, CSV for CI).
+           Bound to prepare-package so it runs in the Docker build's `mvn package`, right
+           after the tests. It only REPORTS; no minimum is enforced yet (see README roadmap). -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>prepare-package</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

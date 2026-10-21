@@ -52,6 +52,24 @@ jobs:
       - name: Build + test (multi-stage Docker build)
         run: docker build --build-context parent=./shop-parent -t ${{ matrix.service }}:${TAG} ./${{ matrix.dir }}
 
+      - name: Test coverage report (JaCoCo)
+        # Report only, no gate yet. Line coverage = share of code lines the tests executed;
+        # branch coverage = share of if/else, switch, etc. outcomes exercised. Read it per
+        # class: 0% on a class with logic means nothing tests it.
+        run: |
+          docker build -q --build-context parent=./shop-parent --target coverage \
+            --output type=local,dest=coverage ./${{ matrix.dir }} > /dev/null
+          {
+            echo "### Test coverage: \`${{ matrix.service }}\`"
+            awk -F, 'NR>1 {lm+=$8; lc+=$9; bm+=$6; bc+=$7}
+                     END  {printf "**Lines %.0f%%** (%d/%d)", (lm+lc)?100*lc/(lm+lc):0, lc, lm+lc;
+                           if (bm+bc) printf " · **Branches %.0f%%** (%d/%d)", 100*bc/(bm+bc), bc, bm+bc;
+                           printf "\n\n"}' coverage/jacoco.csv
+            echo "| Class | Lines covered | Lines missed |"
+            echo "|---|---|---|"
+            awk -F, 'NR>1 {printf "| %s.%s | %d | %d |\n", $2, $3, $9, $8}' coverage/jacoco.csv
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Vulnerability scan (Trivy)
         # Reads every OS package and Java library inside the image and matches them against public
         # CVE databases. Policy: report HIGH + CRITICAL in the job summary; FAIL only on a CRITICAL

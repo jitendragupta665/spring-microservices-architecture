@@ -108,3 +108,4 @@ coverage/
 
 # Custom patterns
 .locally-uncomitted/
+coverage/
