@@ -1,0 +1,41 @@
+# CI: on every push to main, build + test each service inside Docker,
+# tag the image with the commit SHA, and load it into the local kind cluster "lab".
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}     # "Run workflow" button in the Actions tab
+  # No pull_request trigger on purpose: this is a PUBLIC repo and the runner is the
+  # owner's laptop. A PR from a fork would otherwise run a stranger's code on it.
+
+jobs:
+  build:
+    name: build ${{ matrix.service }}
+    # Only the runner registered with these labels (the one in WSL) picks this job up
+    runs-on: [self-hosted, linux, kind-lab]
+    strategy:
+      fail-fast: false      # one failing service does not cancel the others
+      matrix:
+        include:
+          - {service: eureka,        dir: discovery-server}
+          - {service: user-service,  dir: user-service}
+          - {service: order-service, dir: order-service}
+          - {service: api-gateway,   dir: api-gateway}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Compute image tag (short commit SHA)
+        run: |
+          echo "TAG=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"   # where kind is installed
+
+      - name: Build + test (multi-stage Docker build)
+        run: docker build -t ${{ matrix.service }}:${TAG} ./${{ matrix.dir }}
+
+      - name: Load image into kind cluster
+        run: kind load docker-image ${{ matrix.service }}:${TAG} --name lab
+
+      - name: Summary
+        run: echo "Built and loaded \`${{ matrix.service }}:${TAG}\`" >> "$GITHUB_STEP_SUMMARY"

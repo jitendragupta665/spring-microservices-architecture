@@ -1,0 +1,7 @@
+# A Namespace is a named "folder" inside the cluster.
+# It keeps our app objects apart from system pods (kube-system), and later lets us
+# apply per-team quotas and access rules (RBAC) to just this folder.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop

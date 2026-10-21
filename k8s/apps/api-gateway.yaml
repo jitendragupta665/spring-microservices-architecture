@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: api-gateway:1.0
+          ports:
+            - containerPort: 8085
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=75"
+            - name: EUREKA_INSTANCE_PREFERIPADDRESS
+              value: "true"
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits:   {memory: 512Mi}
+          readinessProbe:     # the gateway has Spring Actuator, which exposes a real health endpoint
+            httpGet: {path: /actuator/health, port: 8085}
+            initialDelaySeconds: 15
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: shop
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8085
+      targetPort: 8085

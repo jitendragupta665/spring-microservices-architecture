@@ -1,0 +1,20 @@
+# Ingress = HTTP routing rules from outside the cluster to a Service inside it.
+# The rules are only data; the NGINX Ingress controller (namespace ingress-nginx)
+# reads them and turns them into its nginx.conf.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop-ingress
+  namespace: shop              # must be the same namespace as the backend Service
+spec:
+  ingressClassName: nginx      # which controller should implement these rules
+  rules:
+    - http:                    # no "host:" => matches any hostname, including localhost
+        paths:
+          - path: /
+            pathType: Prefix   # "/" and everything under it: /order/..., /user/...
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8085

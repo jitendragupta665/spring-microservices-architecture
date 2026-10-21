@@ -61,7 +61,6 @@ application-local.properties
 
 # Docker
 docker-compose.override.yml
-.dockerignore
 
 # Node (if applicable)
 node_modules/
