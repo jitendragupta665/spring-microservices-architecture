@@ -51,18 +51,6 @@
       "depNameTemplate": "tools.jackson.core:jackson-databind"
     },
     {
-      "description": "shop-parent security override <freemarker.version> pins org.freemarker:freemarker",
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/(^|/)shop-parent/pom\\.xml$/"
-      ],
-      "matchStrings": [
-        "<freemarker\\.version>(?<currentValue>[^<]+)</freemarker\\.version>"
-      ],
-      "datasourceTemplate": "maven",
-      "depNameTemplate": "org.freemarker:freemarker"
-    },
-    {
       "description": "Scanner images pinned in CI env vars (TRIVY_IMAGE, GITLEAKS_IMAGE): image:tag@sha256:digest. Renovate proposes new tags and refreshed digests like any other image.",
       "customType": "regex",
       "managerFilePatterns": [
@@ -100,8 +88,7 @@
         "org.springframework.cloud:**",
         "org.apache.tomcat.embed:tomcat-embed-core",
         "com.fasterxml.jackson.core:jackson-databind",
-        "tools.jackson.core:jackson-databind",
-        "org.freemarker:freemarker"
+        "tools.jackson.core:jackson-databind"
       ],
       "groupName": "spring boot and cloud",
       "separateMajorMinor": false
@@ -123,8 +110,7 @@
       "matchPackageNames": [
         "org.apache.tomcat.embed:tomcat-embed-core",
         "com.fasterxml.jackson.core:jackson-databind",
-        "tools.jackson.core:jackson-databind",
-        "org.freemarker:freemarker"
+        "tools.jackson.core:jackson-databind"
       ],
       "matchUpdateTypes": [
         "major",

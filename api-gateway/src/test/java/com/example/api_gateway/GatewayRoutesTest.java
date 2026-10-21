@@ -22,9 +22,8 @@ import java.nio.charset.StandardCharsets;
  * with its real route config and check where each request ends up.
  *
  * Two stub backends (JDK HttpServer) stand in for order-service and user-service. Each stub
- * echoes the path it RECEIVED, so the test sees the effect of the StripPrefix=1 filter.
- * Eureka is off; the load balancer resolves lb://ORDER-SERVICE and lb://USER-SERVICE through a
- * static list (simple discovery) pointing at the stubs.
+ * echoes the METHOD and PATH it received, so the test proves the path is forwarded unchanged.
+ * services.*.url points the routes at the stubs instead of the Kubernetes DNS names.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
@@ -45,11 +44,13 @@ class GatewayRoutesTest {
         userStub.stop(0);
     }
 
-    /** Answers every path with "<name> got <path>" so the test can see what arrived. */
+    /** Answers every request with "<name> got <METHOD> <path>" so the test can see what arrived. */
     private static HttpServer echoServer(String name) throws IOException {
         HttpServer s = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         s.createContext("/", ex -> {
-            byte[] body = (name + " got " + ex.getRequestURI().getPath()).getBytes(StandardCharsets.UTF_8);
+            ex.getRequestBody().readAllBytes();   // consume the request body (POST)
+            String got = name + " got " + ex.getRequestMethod() + " " + ex.getRequestURI().getPath();
+            byte[] body = got.getBytes(StandardCharsets.UTF_8);
             ex.sendResponseHeaders(200, body.length);
             try (OutputStream os = ex.getResponseBody()) {
                 os.write(body);
@@ -61,46 +62,49 @@ class GatewayRoutesTest {
 
     @DynamicPropertySource
     static void wireStubs(DynamicPropertyRegistry r) {
-        r.add("eureka.client.enabled", () -> "false");
-        r.add("spring.cloud.discovery.client.simple.instances[ORDER-SERVICE][0].uri",
-                () -> "http://localhost:" + orderStub.getAddress().getPort());
-        r.add("spring.cloud.discovery.client.simple.instances[USER-SERVICE][0].uri",
-                () -> "http://localhost:" + userStub.getAddress().getPort());
+        r.add("services.order.url", () -> "http://localhost:" + orderStub.getAddress().getPort());
+        r.add("services.user.url", () -> "http://localhost:" + userStub.getAddress().getPort());
     }
 
     @Autowired
     private WebTestClient client;
 
     @Test
-    void orderPathGoesToOrderServiceWithPrefixStripped() {
-        // Ingress path /order/order -> gateway strips the first segment -> order-service gets /order
-        client.get().uri("/order/order").exchange()
+    void userPathIsForwardedUnchangedToUserService() {
+        client.get().uri("/api/v1/users/1").exchange()
                 .expectStatus().isOk()
-                .expectBody(String.class).isEqualTo("order-stub got /order");
+                .expectBody(String.class).isEqualTo("user-stub got GET /api/v1/users/1");
     }
 
     @Test
-    void userPathGoesToUserServiceWithPrefixStripped() {
-        client.get().uri("/user/user").exchange()
+    void createOrderKeepsMethodAndPath() {
+        client.post().uri("/api/v1/orders").bodyValue("{\"userId\":1,\"item\":\"book\"}").exchange()
                 .expectStatus().isOk()
-                .expectBody(String.class).isEqualTo("user-stub got /user");
+                .expectBody(String.class).isEqualTo("order-stub got POST /api/v1/orders");
     }
 
     @Test
-    void deeperPathsKeepEverythingAfterThePrefix() {
-        client.get().uri("/order/order/42/items").exchange()
+    void orderByIdGoesToOrderService() {
+        client.get().uri("/api/v1/orders/42").exchange()
                 .expectStatus().isOk()
-                .expectBody(String.class).isEqualTo("order-stub got /order/42/items");
+                .expectBody(String.class).isEqualTo("order-stub got GET /api/v1/orders/42");
     }
 
     @Test
     void pathWithoutARouteIs404AndReachesNoBackend() {
-        client.get().uri("/payments/pay").exchange().expectStatus().isNotFound();
+        client.get().uri("/api/v1/payments/1").exchange().expectStatus().isNotFound();
     }
 
     @Test
     void prefixMatchingIsBySegmentNotByText() {
-        // Path=/order/** must not swallow /orders/...: a different word is a different route.
-        client.get().uri("/orders/1").exchange().expectStatus().isNotFound();
+        // Path=/api/v1/orders/** must not swallow /api/v1/ordersX: a different word is a different route.
+        client.get().uri("/api/v1/ordersX/1").exchange().expectStatus().isNotFound();
+    }
+
+    @Test
+    void oldDoubledPathsAreGone() {
+        // Before ADR-0007: /order/order and /user/user (prefix stripped, then added again by the service).
+        client.get().uri("/order/order").exchange().expectStatus().isNotFound();
+        client.get().uri("/user/user").exchange().expectStatus().isNotFound();
     }
 }

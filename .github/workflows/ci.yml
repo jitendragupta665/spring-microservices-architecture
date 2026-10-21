@@ -36,7 +36,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {service: eureka,        dir: discovery-server}
           - {service: user-service,  dir: user-service}
           - {service: order-service, dir: order-service}
           - {service: api-gateway,   dir: api-gateway}

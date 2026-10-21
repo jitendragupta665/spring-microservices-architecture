@@ -11,15 +11,33 @@ with no domain logic or database. It is not production-ready. Work follows a 10-
 
 ```
 localhost:80 -> ingress-nginx -> api-gateway -> order-service -> user-service
-                                     (service discovery: Eureka)
+                                 (services find each other by Kubernetes DNS name, ADR-0006)
 ```
 
 | Service | Port | What it does today |
 | --- | --- | --- |
-| api-gateway | 8085 | Routes `/order/**` and `/user/**`. Images built from PR #12 onward expose only `/actuator/health` and `/actuator/info`; check the deployed tag in `k8s/apps/kustomization.yaml` |
-| order-service | 8081 | `GET /order` calls user-service (1 s connect / 2 s read timeouts) |
-| user-service | 8080 | `GET /user` returns a placeholder string |
-| discovery-server | 8761 | Eureka registry |
+| api-gateway | 8085 | Routes `/api/v1/orders/**` and `/api/v1/users/**`, path unchanged. Exposes only `/actuator/health` and `/actuator/info` |
+| order-service | 8081 | Places and reads orders (in memory for now); checks the user with user-service (1 s connect / 2 s read timeouts) |
+| user-service | 8080 | Returns users (fixed demo data: ids 1-3) |
+
+## API (v1)
+
+Conventions are in [ADR-0007](docs/adr/0007-rest-api-conventions.md): plural nouns, version in
+the path, JSON in and out, errors as RFC 9457 problem JSON (`application/problem+json`).
+
+| Method and path | Success | Errors |
+| --- | --- | --- |
+| `GET /api/v1/users/{id}` | `200` `{"id":1,"name":"Rahul","age":22}` + `X-Served-By: <pod>` | `404` unknown user, `400` id not a number |
+| `POST /api/v1/orders` body `{"userId":1,"item":"book"}` | `201` + `Location: /api/v1/orders/{id}` + the order | `400` invalid body, `422` user does not exist, `503` + `Retry-After` user-service unavailable |
+| `GET /api/v1/orders/{id}` | `200` the order | `404` unknown order |
+
+```bash
+curl -i localhost/api/v1/users/1
+curl -i -X POST localhost/api/v1/orders -H 'Content-Type: application/json' -d '{"userId":1,"item":"book"}'
+```
+
+Orders live in memory until PostgreSQL arrives (Phase 3): they are lost on restart, and each of
+the 2 order-service pods has its own, so reading an order can return 404 from the other pod.
 
 ## Repository layout
 
@@ -35,7 +53,7 @@ localhost:80 -> ingress-nginx -> api-gateway -> order-service -> user-service
 | `scripts/lab-up.sh`, `scripts/lab-down.sh` | Rebuild / delete the whole lab with one command |
 | `scripts/registry-up.sh` | Local image registry `kind-registry` on `localhost:5001`, wired into every kind node |
 | `scripts/lab-cleanup.sh` | Deletes old CI images from the host, the nodes and the registry (keeps running, pinned and last 3 main builds) |
-| `docker-compose.yml` | Legacy local setup from before Kubernetes; not maintained |
+| `docker-compose.yml` | Run the services without Kubernetes (`docker compose up --build`, then `localhost:8085/api/v1/...`) |
 
 ## Run the lab
 

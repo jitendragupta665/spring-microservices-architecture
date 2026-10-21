@@ -14,9 +14,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
  * configprops) or lets an anonymous caller change the running system (loggers, refresh,
  * serviceregistry).
  */
-@SpringBootTest(
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "eureka.client.enabled=false") // no discovery server in a unit-test JVM
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
 class ActuatorExposureTest {
 
