@@ -89,7 +89,54 @@ for node in $nodes; do
   done
 done
 
-# ---- 4. BuildKit cache: keep it warm but bounded ----------------------------
+# ---- 4. local registry (localhost:5001) -------------------------------------
+# `docker rmi localhost:5001/...` only drops the client's local name; the registry keeps the
+# manifest and blobs. Retention is applied through the registry API, then garbage collection.
+# The API deletes by DIGEST, and a digest delete removes EVERY tag pointing at it. Unchanged
+# services rebuild to identical images, so an old tag can share a digest with a kept one:
+# never delete a digest that any kept tag uses.
+REG_URL=${REG_URL:-http://localhost:5001}
+REG_CONTAINER=${REG_CONTAINER:-kind-registry}
+ACCEPT='application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'
+digest_of() {
+  curl -fsSI -H "Accept: $ACCEPT" "$REG_URL/v2/$1/manifests/$2" \
+    | awk 'tolower($1)=="docker-content-digest:"{print $2}' | tr -d '\r'
+}
+if curl -fs "$REG_URL/v2/" >/dev/null 2>&1; then
+  echo "== registry $REG_URL"
+  for s in $SERVICES; do
+    tags=$(curl -fs "$REG_URL/v2/$s/tags/list" 2>/dev/null \
+           | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin).get("tags") or []))') || continue
+    # Resolve every tag's digest BEFORE deleting anything: once a digest is deleted, the other
+    # tags that pointed at it are gone too, and looking them up would 404.
+    unset dig; declare -A dig=()
+    for t in $tags; do dig[$t]=$(digest_of "$s" "$t" || true); done
+    kept_digests=""
+    for t in $tags; do is_kept "$s:$t" && kept_digests+=" ${dig[$t]}"; done
+    deleted=""
+    for t in $tags; do
+      is_kept "$s:$t" && continue
+      d=${dig[$t]}; [ -n "$d" ] || continue
+      if grep -qF -- "$d" <<<"$kept_digests"; then echo "  keep $s:$t (same image as a kept tag)"; continue; fi
+      grep -qF -- "$d" <<<"$deleted" && continue          # already deleted via another tag
+      run curl -fsS -o /dev/null -X DELETE "$REG_URL/v2/$s/manifests/$d"
+      deleted+=" $d"
+    done
+  done
+  # Frees the blobs no manifest references any more. Safe here because the main pipeline is
+  # serialized (no push runs while cleanup runs) and PR builds never push.
+  if $APPLY; then
+    n=$(docker exec "$REG_CONTAINER" registry garbage-collect --delete-untagged /etc/distribution/config.yml 2>&1 \
+        | grep -c 'Deleting blob:' || true)
+    echo "  garbage-collect: $n blobs deleted"
+  else
+    echo "  [dry-run] docker exec $REG_CONTAINER registry garbage-collect --delete-untagged /etc/distribution/config.yml"
+  fi
+else
+  echo "== registry $REG_URL not reachable, skipped"
+fi
+
+# ---- 5. BuildKit cache: keep it warm but bounded ----------------------------
 echo "== build cache (cap at $CACHE_MAX)"
 run docker builder prune -f --max-used-space "$CACHE_MAX"
 
