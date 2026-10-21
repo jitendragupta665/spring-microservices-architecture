@@ -7,6 +7,7 @@ resources:
   - order-service.yaml
   - api-gateway.yaml
   - ingress.yaml
+  - network-policies.yaml   # zero-trust: deny all, then allow each real call (ADR 0005)
 # Single place that decides which build runs in the cluster.
 # newName = the local registry (scripts/registry-up.sh); nodes pull from it, so a rebuilt
 # cluster can start the apps without loading images by hand.
