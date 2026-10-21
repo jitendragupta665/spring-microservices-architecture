@@ -36,6 +36,20 @@ The first API had placeholder endpoints that grew by accident:
 
    Internal details (host names, stack traces) go to the service log, never into the response.
 
+## Rollout rule for breaking changes (learned in PR #29)
+Services roll out independently, so for a few minutes old and new versions run side by side
+(old gateway + new order-service, and so on). A change that removes a route or a dependency in
+the same deploy that adds its replacement breaks those mixed pairs (404s, wrong 422s). Codex
+review on PR #29 flagged exactly this; the lab accepted a short window because nothing uses it
+yet. From now on, breaking changes use **expand / contract**:
+1. **Expand:** the new version serves BOTH the old and the new contract (routes, fields), and is
+   deployed everywhere.
+2. **Migrate** callers to the new contract.
+3. **Contract:** a later deploy removes the old contract once nothing calls it.
+
+Argo CD's `PruneLast=true` (on the `shop` Application) supports this by deleting removed objects
+only after the new workloads are healthy.
+
 ## Consequences
 - **Good:** clients get a predictable contract. Errors tell them whether to fix the request or
   retry. Contract tests (Phase 3) have something precise to check.

@@ -22,3 +22,7 @@ spec:
       selfHeal: true  # undo manual kubectl edits (drift) back to what Git says
     syncOptions:
       - CreateNamespace=true
+      # Delete objects removed from Git only AFTER every other resource in the sync is
+      # applied and healthy (new Deployments rolled out). A removed dependency (e.g. Eureka in
+      # PR #29) then stays available to the old pods until their replacements are ready.
+      - PruneLast=true
