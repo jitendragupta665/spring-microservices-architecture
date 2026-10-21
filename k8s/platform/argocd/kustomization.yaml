@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+# Argo CD manages itself from Git (app-of-apps child "argocd").
+# Upstream install manifest, pinned. To upgrade: read the release notes / upgrade guide between
+# versions, bump the tag below in a PR, review the rendered diff, merge.
+# Why not the Helm chart: the chart adds app.kubernetes.io/instance + component to every
+# Deployment/StatefulSet selector. Selectors are immutable, so switching would force Argo CD to
+# delete and recreate its own workloads mid-sync. This base renders the exact objects already live.
+resources:
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+patches:
+  # Serve the UI/API over plain HTTP. Lab only: reached via `kubectl port-forward` on 127.0.0.1
+  # (the browser pane rejects the self-signed cert). In production TLS ends at the ingress/LB.
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: argocd-cmd-params-cm
+      data:
+        server.insecure: "true"
