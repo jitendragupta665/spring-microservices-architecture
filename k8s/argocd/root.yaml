@@ -1,0 +1,18 @@
+# App-of-apps. Applied ONCE by hand (bootstrap); after that, every Application
+# under k8s/argocd/apps/ is created and updated by Argo CD from Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jitendragupta665/spring-microservices-architecture.git
+    targetRevision: main
+    path: k8s/argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
