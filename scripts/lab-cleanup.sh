@@ -53,10 +53,14 @@ pinned=$(awk '/- name:/{n=$3} /newTag:/{gsub(/"/,"",$2); print n":"$2}' <<<"$kus
 commits=$(git log --first-parent -n 30 --format=%H origin/main 2>/dev/null \
           || git log --first-parent -n 30 --format=%H HEAD)
 newest=""
+REG_URL=${REG_URL:-http://localhost:5001}
+# An image counts as "existing" if it is on this Docker host OR in the registry. The registry is
+# the source of truth for rollback; local images are only a cache of it.
+reg_has() { curl -fsI -o /dev/null "$REG_URL/v2/$1/manifests/$2" 2>/dev/null; }
 for s in $SERVICES; do
   n=0
   for sha in $commits; do
-    if docker image inspect "$s:${sha::7}" >/dev/null 2>&1; then
+    if docker image inspect "$s:${sha::7}" >/dev/null 2>&1 || reg_has "$s" "${sha::7}"; then
       newest+="$s:${sha::7}"$'\n'; n=$((n+1)); [ "$n" -ge "$KEEP" ] && break
     fi
   done
@@ -95,7 +99,6 @@ done
 # The API deletes by DIGEST, and a digest delete removes EVERY tag pointing at it. Unchanged
 # services rebuild to identical images, so an old tag can share a digest with a kept one:
 # never delete a digest that any kept tag uses.
-REG_URL=${REG_URL:-http://localhost:5001}
 REG_CONTAINER=${REG_CONTAINER:-kind-registry}
 ACCEPT='application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'
 digest_of() {
@@ -111,8 +114,16 @@ if curl -fs "$REG_URL/v2/" >/dev/null 2>&1; then
     # tags that pointed at it are gone too, and looking them up would 404.
     unset dig; declare -A dig=()
     for t in $tags; do dig[$t]=$(digest_of "$s" "$t" || true); done
-    kept_digests=""
-    for t in $tags; do is_kept "$s:$t" && kept_digests+=" ${dig[$t]}"; done
+    kept_digests=""; unsafe=false
+    for t in $tags; do
+      is_kept "$s:$t" || continue
+      if [ -z "${dig[$t]:-}" ]; then
+        echo "  ERROR: cannot resolve digest of kept tag $s:$t, skipping registry pruning for $s"
+        unsafe=true; break
+      fi
+      kept_digests+=" ${dig[$t]}"
+    done
+    $unsafe && continue
     deleted=""
     for t in $tags; do
       is_kept "$s:$t" && continue
@@ -123,14 +134,20 @@ if curl -fs "$REG_URL/v2/" >/dev/null 2>&1; then
       deleted+=" $d"
     done
   done
-  # Frees the blobs no manifest references any more. Safe here because the main pipeline is
-  # serialized (no push runs while cleanup runs) and PR builds never push.
+  # Frees the blobs no manifest references any more. GC must not race a push (a blob uploaded
+  # but not yet linked to a manifest looks unreferenced), so the registry is STOPPED while it
+  # runs and always restarted. Pulls fail for a few seconds; kubelet retries them.
+  REG_IMAGE=$(docker inspect -f '{{.Config.Image}}' "$REG_CONTAINER")
   if $APPLY; then
-    n=$(docker exec "$REG_CONTAINER" registry garbage-collect --delete-untagged /etc/distribution/config.yml 2>&1 \
+    docker stop "$REG_CONTAINER" >/dev/null
+    trap 'docker start "$REG_CONTAINER" >/dev/null' EXIT
+    n=$(docker run --rm --volumes-from "$REG_CONTAINER" "$REG_IMAGE" \
+          garbage-collect --delete-untagged /etc/distribution/config.yml 2>&1 \
         | grep -c 'Deleting blob:' || true)
+    docker start "$REG_CONTAINER" >/dev/null; trap - EXIT
     echo "  garbage-collect: $n blobs deleted"
   else
-    echo "  [dry-run] docker exec $REG_CONTAINER registry garbage-collect --delete-untagged /etc/distribution/config.yml"
+    echo "  [dry-run] stop $REG_CONTAINER; garbage-collect --delete-untagged; start $REG_CONTAINER"
   fi
 else
   echo "== registry $REG_URL not reachable, skipped"
