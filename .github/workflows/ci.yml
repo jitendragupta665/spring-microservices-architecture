@@ -43,7 +43,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build + test (multi-stage Docker build)
-        run: docker build -t ${{ matrix.service }}:${TAG} ./${{ matrix.dir }}
+        run: docker build --build-context parent=./shop-parent -t ${{ matrix.service }}:${TAG} ./${{ matrix.dir }}
 
       - name: Push image to local registry (main only)
         # Registry = durable source of images: a rebuilt cluster pulls from it (no `kind load` needed).

@@ -26,6 +26,7 @@ localhost:80 -> ingress-nginx -> api-gateway -> order-service -> user-service
 | Path | Contents |
 | --- | --- |
 | `*/` (one folder per service) | Spring Boot service, multi-stage `Dockerfile` (tests run during the image build) |
+| `shop-parent/pom.xml` | Shared Maven parent: the ONE place that sets Java, Spring Boot, Spring Cloud and security-patched library versions for every service. Docker builds receive it as a second build context (`--build-context parent=./shop-parent`) |
 | `.github/workflows/ci.yml` | CI: build and test every service on PRs; on `main` also push `<service>:<sha7>` to the local registry and clean up old images |
 | `k8s/kind-cluster.yaml` | Local cluster: 1 control-plane + 2 workers, ports 80/443 mapped to the laptop |
 | `k8s/apps/` | Application manifests (namespace `shop`); image tags pinned in `kustomization.yaml` |
@@ -52,7 +53,8 @@ git worktree add /tmp/pinned "$TAG"
 for pair in eureka:discovery-server user-service:user-service order-service:order-service api-gateway:api-gateway; do
   img=${pair%%:*}; dir=${pair#*:}
   curl -sf -H "Accept: $ACCEPT" "http://localhost:5001/v2/$img/manifests/$TAG" >/dev/null && continue
-  docker build -t "localhost:5001/$img:$TAG" "/tmp/pinned/$dir" && docker push "localhost:5001/$img:$TAG"
+  ctx=(); [ -d /tmp/pinned/shop-parent ] && ctx=(--build-context parent=/tmp/pinned/shop-parent)
+  docker build "${ctx[@]}" -t "localhost:5001/$img:$TAG" "/tmp/pinned/$dir" && docker push "localhost:5001/$img:$TAG"
 done
 git worktree remove /tmp/pinned
 

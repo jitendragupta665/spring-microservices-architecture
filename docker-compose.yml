@@ -1,13 +1,19 @@
 services:
 
   eureka:
-    build: ./discovery-server
+    build:
+      context: ./discovery-server
+      additional_contexts:
+        parent: ./shop-parent   # shared parent POM
     container_name: eureka
     ports:
       - "8761:8761"
 
   user-service:
-    build: ./user-service
+    build:
+      context: ./user-service
+      additional_contexts:
+        parent: ./shop-parent   # shared parent POM
     container_name: user-service
     depends_on:
       - eureka
@@ -15,7 +21,10 @@ services:
       - "8080:8080"
 
   order-service:
-    build: ./order-service
+    build:
+      context: ./order-service
+      additional_contexts:
+        parent: ./shop-parent   # shared parent POM
     container_name: order-service
     depends_on:
       - eureka
@@ -24,7 +33,10 @@ services:
       - "8081:8081"
 
   api-gateway:
-    build: ./api-gateway
+    build:
+      context: ./api-gateway
+      additional_contexts:
+        parent: ./shop-parent   # shared parent POM
     container_name: api-gateway
     depends_on:
       - eureka
