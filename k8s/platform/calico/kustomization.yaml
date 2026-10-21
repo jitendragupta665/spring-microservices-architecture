@@ -1,0 +1,49 @@
+# Calico CNI (pod networking + NetworkPolicy enforcement) for the kind lab.
+#
+# Why not kind's default CNI (kindnet): kindnet enforces NetworkPolicy through nfqueue/NRI,
+# and that path wedged DNS for Argo CD three times (see k8s/platform/argocd/kustomization.yaml).
+# Calico is the most widely used open-source CNI in production clusters and enforces
+# NetworkPolicy with plain iptables/eBPF rules.
+#
+# calico.yaml = upstream manifest v3.32.2, vendored unchanged
+#   https://raw.githubusercontent.com/projectcalico/calico/v3.32.2/manifests/calico.yaml
+#   sha256 a8c828a06a87c629a282ebbc424895b77f3a030251993e41ea400a743675bb02
+# Lab-specific changes are patches below, so an upgrade = replace calico.yaml, keep patches.
+#
+# Installed by scripts/lab-up.sh, NOT by Argo CD: pods (Argo CD included) cannot even start
+# until a CNI exists, so the CNI is "layer 0", like the cluster and the registry.
+resources:
+  - calico.yaml
+
+patches:
+  # VXLAN instead of the default BGP + IP-in-IP: VXLAN is built into the WSL2 kernel
+  # (CONFIG_VXLAN=y) while IP-in-IP is a loadable module (=m). With VXLAN, BGP (BIRD) is not
+  # needed at all, so its health checks are removed too.
+  - target: {kind: ConfigMap, name: calico-config}
+    patch: |-
+      - op: replace
+        path: /data/calico_backend
+        value: vxlan
+  - target: {kind: DaemonSet, name: calico-node}
+    patch: |-
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        name: calico-node
+        namespace: kube-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: calico-node
+                env:
+                  # Must equal networking.podSubnet in k8s/kind-cluster.yaml
+                  - {name: CALICO_IPV4POOL_CIDR, value: "192.168.0.0/16"}
+                  - {name: CALICO_IPV4POOL_IPIP, value: "Never"}
+                  - {name: CALICO_IPV4POOL_VXLAN, value: "Always"}
+                livenessProbe:
+                  exec:
+                    command: [/bin/calico-node, -felix-live]
+                readinessProbe:
+                  exec:
+                    command: [/bin/calico-node, -felix-ready]

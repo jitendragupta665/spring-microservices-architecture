@@ -2,6 +2,13 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: lab
+networking:
+  # No kindnet: scripts/lab-up.sh installs Calico (k8s/platform/calico) right after creation.
+  # Until then nodes stay NotReady, which is expected.
+  disableDefaultCNI: true
+  # Pod IP range; must equal CALICO_IPV4POOL_CIDR in k8s/platform/calico/kustomization.yaml.
+  # Does not overlap the Docker "kind" network (172.x) or Services (10.96.0.0/12).
+  podSubnet: "192.168.0.0/16"
 # containerd on every node reads per-registry config from /etc/containerd/certs.d.
 # scripts/registry-up.sh then adds localhost:5001 -> kind-registry (the local image registry).
 containerdConfigPatches:
