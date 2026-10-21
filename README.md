@@ -1,450 +1,116 @@
-# Microservices Architecture
+# Spring microservices lab: v1 (Docker Compose era)
 
-A production-ready Spring Boot microservices architecture with inter-service communication. This project demonstrates a scalable, containerized microservices setup with two independent services: Order Service and User Service.
+> **Archived snapshot, for learning only.** This branch is the state of the project *before*
+> Kubernetes (February 2026): four Spring Boot services, Netflix Eureka for service discovery,
+> Spring Cloud Gateway, one Dockerfile per service, and Docker Compose to run them together.
+> It is frozen on purpose. Its libraries have known vulnerabilities and it has no tests, CI or
+> security hardening. Do not deploy it anywhere. The current project lives on
+> [`main`](https://github.com/jitendragupta665/spring-microservices-architecture).
 
-## Architecture Overview
+## Where this sits in the journey
 
-```
-┌─────────────────────────────────────────────────────────┐
-│           Docker Network (micro-net)                    │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  ┌──────────────────────┐   ┌──────────────────────┐  │
-│  │   Order Service      │   │   User Service       │  │
-│  │   (Port: 8081)       │ ─→│   (Port: 8080)       │  │
-│  │                      │   │                      │  │
-│  │ GET /order           │   │ GET /user            │  │
-│  └──────────────────────┘   └──────────────────────┘  │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-```
+| Release | Tag / branch | What it added |
+|---|---|---|
+| **v1 Docker Compose** (this branch) | `v1.0-docker-compose`, `release/v1-docker-compose` | Services, discovery, gateway, containers |
+| v2 Kubernetes + GitOps | `v2.0-kubernetes-gitops` | kind cluster, Argo CD, CI, security scans, Calico, NetworkPolicies |
+| v3 Domain v1 (in progress on `main`) | | Eureka removed for Kubernetes DNS, REST API v1, PostgreSQL next |
 
-## Services
+v1 itself was built in small steps. Each step has its own tag, so you can check out any of them
+and see the system exactly as it was:
 
-### 1. User Service
-- **Port:** 8080
-- **Technology:** Spring Boot 4.0.2, Java 21
-- **Endpoints:**
-  - `GET /user` - Returns user information (Rahul, age 22)
-- **Purpose:** Provides user data for other services
+| Step | Tag | Commit | What changed | What it taught |
+|---|---|---|---|---|
+| 1 | `stage-1-localhost` | `738cef3` | order-service calls user-service at `http://localhost:8080` | Two processes talking over HTTP; a hard-coded address only works on one machine |
+| 2 | `stage-2-docker` | `2244d9b` | A `Dockerfile` per service; the URL becomes the container name | Containers have their own network; `localhost` inside a container is the container itself |
+| 3 | `stage-3-eureka` | `d444145` | Eureka server (`discovery-server`); services register; `@LoadBalanced RestTemplate` calls `http://USER-SERVICE` | Client-side service discovery and load balancing: callers find instances by name, not address |
+| 4 | `stage-4-gateway` | `0eec360` | Spring Cloud Gateway on 8085 routes `/order/**` and `/user/**` | One entry point for clients; the services behind it can move or scale |
+| 5 | `v1.0-docker-compose` | `dd68f59` | `docker-compose.yml` starts all four; Docker DNS names everywhere | Orchestrating several containers with one command, and Docker's built-in DNS |
 
-### 2. Order Service
-- **Port:** 8081
-- **Technology:** Spring Boot 4.0.2, Java 21
-- **Endpoints:**
-  - `GET /order` - Creates an order and fetches user information from User Service
-- **Purpose:** Order management and inter-service orchestration
-
-## Prerequisites
-
-- **Java 21+**
-- **Maven 3.6+**
-- **Docker** and **Docker Compose** (for containerized deployment)
-- **Git**
-
-### Installation
 ```bash
-# Verify Java version
-java -version
-
-# Verify Maven version
-mvn -version
-
-# Verify Docker
-docker --version
+git checkout stage-3-eureka     # look at the system as it was after step 3
+git checkout release/v1-docker-compose
 ```
 
-## Project Structure
+## Architecture
 
 ```
-microservices/
-├── order-service/              # Order Service microservice
-│   ├── src/
-│   │   ├── main/java/com/example/order_service/
-│   │   │   ├── OrderServiceApplication.java
-│   │   │   ├── client/
-│   │   │   │   └── UserClient.java          # REST client for User Service
-│   │   │   ├── controller/
-│   │   │   │   └── OrderController.java     # REST endpoints
-│   │   │   └── service/
-│   │   │       └── OrderService.java        # Business logic
-│   │   ├── main/resources/
-│   │   │   └── application.properties
-│   │   └── test/
-│   ├── pom.xml
-│   └── Dockerfile
-│
-├── user-service/               # User Service microservice
-│   ├── src/
-│   │   ├── main/java/com/example/user_service/
-│   │   │   ├── UserServiceApplication.java
-│   │   │   ├── controller/
-│   │   │   │   └── UserController.java      # REST endpoints
-│   │   │   ├── model/
-│   │   │   │   └── User.java                # Data model
-│   │   │   └── service/
-│   │   │       └── UserService.java         # Business logic
-│   │   ├── main/resources/
-│   │   │   └── application.properties
-│   │   └── test/
-│   ├── pom.xml
-│   └── Dockerfile
-│
-├── docker-compose.yml          # Container orchestration
-└── README.md                   # This file
+                        client (browser / curl)
+                                 |
+                                 v   :8085
+                        +-----------------+
+                        |   api-gateway   |  /order/** -> lb://ORDER-SERVICE
+                        |  (Cloud Gateway)|  /user/**  -> lb://USER-SERVICE   (StripPrefix=1)
+                        +-----------------+
+                          |            |
+                          v :8081      v :8080
+                 +---------------+  +---------------+
+                 | order-service |->| user-service  |   order-service calls http://USER-SERVICE/user
+                 +---------------+  +---------------+   through a @LoadBalanced RestTemplate
+                          \            /
+              register + fetch registry (every 30 s)
+                            \        /
+                             v      v   :8761
+                        +-----------------+
+                        |     eureka      |   registry of name -> instance addresses
+                        | (discovery-srv) |   dashboard: http://localhost:8761
+                        +-----------------+
+
+        all four containers share one Compose network; Docker DNS resolves "eureka" etc.
 ```
 
-## Getting Started
+**How a request flows.** `GET http://localhost:8085/order/order`:
+1. The gateway matches `/order/**`, strips the first segment (`/order`), and looks up
+   `ORDER-SERVICE` in its copy of the Eureka registry.
+2. order-service (`GET /order`) asks *its* copy of the registry for `USER-SERVICE`, picks an
+   instance (Spring Cloud LoadBalancer, round robin), and calls `GET /user`.
+3. user-service answers `Response from USER-SERVICE running on port: 8080`, and order-service
+   wraps it: `Order created for -> ...`.
 
-### Development Mode (Without Docker)
+| Service | Port | Endpoint | Spring Boot |
+|---|---|---|---|
+| discovery-server (Eureka) | 8761 | dashboard `/` | 4.0.2, Spring Cloud 2025.1.0 |
+| user-service | 8080 | `GET /user` | 4.0.2 |
+| order-service | 8081 | `GET /order` (calls user-service) | 4.0.2 |
+| api-gateway | 8085 | `/order/**`, `/user/**` | 3.2.5, Spring Cloud 2023.0.1 |
 
-#### 1. Clone and Navigate
+## Run it
+
+Requires Java 21, Maven, Docker with Compose. The Dockerfiles copy a JAR that is already built
+(`COPY target/*.jar`), so build each service first:
+
 ```bash
-git clone <your-repo-url>
-cd microservices
+for s in discovery-server user-service order-service api-gateway; do
+  (cd "$s" && ./mvnw -q -DskipTests package)
+done
+docker compose up --build
 ```
 
-#### 2. Build Both Services
+Then:
+
 ```bash
-# Build User Service
-cd user-service
-mvn clean install
-
-# Build Order Service
-cd ../order-service
-mvn clean install
+curl localhost:8085/order/order    # through the gateway -> order -> user
+curl localhost:8085/user/user      # through the gateway -> user
+open http://localhost:8761         # Eureka dashboard: which instances are registered
 ```
 
-#### 3. Run Services (in separate terminals)
-
-**Terminal 1 - User Service:**
-```bash
-cd user-service
-mvn spring-boot:run
-```
-Expected output:
-```
-Tomcat initialized with port 8080 (http)
-```
-
-**Terminal 2 - Order Service:**
-```bash
-cd order-service
-mvn spring-boot:run
-```
-Expected output:
-```
-Tomcat initialized with port 8081 (http)
-```
-
-#### 4. Test the Services
-
-**User Service:**
-```bash
-curl http://localhost:8080/user
-# Response: {"name":"Rahul","age":22}
-```
-
-**Order Service:**
-```bash
-curl http://localhost:8081/order
-# Response: Order created for -> {"name":"Rahul","age":22}
-```
-
-### Production Mode (With Docker & Docker Compose)
-
-#### 1. Build Docker Images
-
-Build individual services:
-```bash
-# Build User Service image
-cd user-service
-docker build -t user-service:1.0 .
-
-# Build Order Service image
-cd ../order-service
-docker build -t order-service:1.0 .
-```
-
-Or build all at once using Docker Compose:
-```bash
-docker-compose build
-```
-
-#### 2. Create Docker Network
-```bash
-docker network create micro-net
-```
-
-#### 3. Run with Docker Compose
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-```
-
-Or run manually:
-```bash
-# Terminal 1 - User Service
-docker run -d \
-  --name user-service \
-  --network micro-net \
-  -p 8080:8080 \
-  user-service:1.0
-
-# Terminal 2 - Order Service
-docker run -d \
-  --name order-service \
-  --network micro-net \
-  -p 8081:8081 \
-  order-service:1.0
-```
-
-#### 4. Test Docker Containers
-```bash
-# Test User Service
-curl http://localhost:8080/user
-
-# Test Order Service
-curl http://localhost:8081/order
-```
-
-#### 5. Cleanup
-```bash
-# Stop and remove containers
-docker-compose down
-
-# Or manually
-docker stop user-service order-service
-docker rm user-service order-service
-docker network rm micro-net
-```
-
-## Configuration
-
-### User Service - `user-service/src/main/resources/application.properties`
-```properties
-server.port=8080
-spring.application.name=user-service
-```
-
-### Order Service - `order-service/src/main/resources/application.properties`
-```properties
-server.port=8081
-spring.application.name=order-service
-```
-
-### Environment-Specific Configurations
-Create additional properties files:
-- `application-dev.properties` - Development settings
-- `application-prod.properties` - Production settings
-
-Run with specific profile:
-```bash
-mvn spring-boot:run -Dspring-boot.run.arguments="--spring.profiles.active=dev"
-```
-
-## Building & Testing
-
-### Build
-```bash
-mvn clean package
-```
-
-### Run Tests
-```bash
-mvn test
-```
-
-### Run Tests for Specific Service
-```bash
-cd user-service
-mvn test
-
-cd ../order-service
-mvn test
-```
-
-### Code Quality & Linting
-```bash
-# Using Maven plugins (if configured)
-mvn checkstyle:check
-mvn spotbugs:check
-```
-
-## Deployment
-
-### Local Development Deployment
-1. Run `mvn clean install` in each service directory
-2. Use `mvn spring-boot:run` to start services
-3. Services communicate via `localhost:port`
-
-### Docker Container Deployment
-1. Build images using `docker build`
-2. Push to Docker registry (Docker Hub, AWS ECR, etc.)
-3. Deploy using Docker Compose or Kubernetes
-
-### Kubernetes Deployment (Optional)
-Create deployment manifests:
-- Service definitions
-- Deployment specs
-- ConfigMap for configurations
-- Service discovery using DNS
-
-## API Documentation
-
-### User Service
-
-| Method | Endpoint | Description | Response |
-|--------|----------|-------------|----------|
-| GET | `/user` | Get user information | `{"name":"Rahul","age":22}` |
-
-### Order Service
-
-| Method | Endpoint | Description | Response |
-|--------|----------|-------------|----------|
-| GET | `/order` | Create order and fetch user info | `"Order created for -> {"name":"Rahul","age":22}"` |
-
-## Troubleshooting
-
-### Issue: Port Already in Use
-```bash
-# Windows
-netstat -ano | findstr :8080
-taskkill /PID <PID> /F
-
-# Linux/Mac
-lsof -i :8080
-kill -9 <PID>
-```
-
-### Issue: Docker Network Not Found
-```bash
-# Create network if missing
-docker network create micro-net
-
-# Verify network exists
-docker network ls
-```
-
-### Issue: Service Connection Error
-Ensure:
-- Both containers are running: `docker ps`
-- Both are on the same network: `docker network inspect micro-net`
-- Correct service names are used in connections
-- Firewall rules allow inter-container communication
-
-### Issue: Maven Build Fails
-```bash
-# Clear Maven cache
-mvn clean
-
-# Rebuild
-mvn install -U
-
-# Force dependency update
-mvn dependency:purge-local-repository
-```
-
-## Dependencies
-
-### Core Dependencies
-- **Spring Boot Starter WebMVC** - Web framework
-- **Spring Boot DevTools** - Development reload support
-- **Lombok** - Boilerplate code reduction
-
-### Testing
-- **Spring Boot Test Starter** - Testing framework
-
-## Best Practices
-
-1. **Containerization:** Always containerize services for consistency
-2. **Network Isolation:** Use named networks for inter-service communication
-3. **Service Discovery:** Use DNS naming for container communication
-4. **Health Checks:** Implement health check endpoints
-5. **Logging:** Centralize logs using ELK, Splunk, or cloud solutions
-6. **Monitoring:** Use Prometheus and Grafana for metrics
-7. **Configuration Management:** Use ConfigMap or environment variables
-8. **Error Handling:** Implement proper exception handling and error responses
-9. **API Versioning:** Include version in endpoints (e.g., `/api/v1/user`)
-10. **Documentation:** Keep API documentation updated with Swagger/OpenAPI
-
-## Monitoring & Logging
-
-### Enable Debug Logging
-Add to `application.properties`:
-```properties
-logging.level.root=INFO
-logging.level.com.example=DEBUG
-logging.level.web=DEBUG
-```
-
-### Spring Actuator (Optional)
-Add dependency:
-```xml
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-actuator</artifactId>
-</dependency>
-```
-
-Endpoints:
-- `/actuator/health` - Health status
-- `/actuator/metrics` - Application metrics
-- `/actuator/env` - Environment details
-
-## Performance Optimization
-
-1. **Connection Pooling:** Configure database connection pools
-2. **Caching:** Implement Redis for distributed caching
-3. **Load Balancing:** Use Nginx or HAProxy
-4. **Rate Limiting:** Implement rate limiting for APIs
-5. **Async Processing:** Use async/reactive patterns for I/O operations
-
-## Security
-
-- Implement OAuth 2.0 / JWT for authentication
-- Use HTTPS for all external communication
-- Enable CORS only for trusted origins
-- Sanitize inputs to prevent injection attacks
-- Implement rate limiting to prevent DDoS
-- Use secrets management (Vault, AWS Secrets Manager)
-
-## Contributing
-
-1. Create a feature branch: `git checkout -b feature/feature-name`
-2. Commit changes: `git commit -m "Add feature description"`
-3. Push to branch: `git push origin feature/feature-name`
-4. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see LICENSE file for details.
-
-## Support
-
-For issues and questions:
-- Create an issue in the repository
-- Contact the development team
-- Check existing documentation
-
-## Changelog
-
-### Version 1.0.0 (Initial Release)
-- User Service basic implementation
-- Order Service basic implementation
-- Docker support
-- Basic inter-service communication
-
-## Resources
-
-- [Spring Boot Documentation](https://spring.io/projects/spring-boot)
-- [Docker Documentation](https://docs.docker.com/)
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
-- [Maven Documentation](https://maven.apache.org/guides/)
-- [Java 21 Features](https://openjdk.org/projects/jdk/21/)
+Services register about 30 s after they start. Until then the gateway answers `503`.
+
+## Known limitations (why v2 exists)
+
+These are the real problems this version had. Each one was fixed later, on `main`:
+
+| Problem in v1 | Consequence | Fixed in v2 by |
+|---|---|---|
+| Versions picked per service (gateway on Boot 3.2.5, the rest on 4.0.2, three Spring Cloud trains) | Same library at different versions; upgrades one by one | Shared parent POM (ADR-0001) |
+| `management.endpoints.web.exposure.include=*` on the gateway, the only public service | `heapdump`, `env` and `configprops` readable by anyone | Expose `health` and `info` only, plus a test (PR #12) |
+| JAR built on the laptop, then copied into a JDK image running as root | "Works on my machine" builds; a large image running as root | Multi-stage Dockerfile: tests run inside the build, JRE-only runtime, non-root user |
+| No tests beyond `contextLoads`, no CI | Nothing stopped a broken change | Unit, web, integration and routing tests; GitHub Actions on every PR |
+| No dependency or vulnerability tracking | Old Tomcat, Jackson and FreeMarker with critical CVEs | Renovate, Trivy and gitleaks as merge gates (ADR-0002, ADR-0003) |
+| `depends_on` only orders start-up, no health checks | Calls fail while Eureka registrations are still missing | Kubernetes readiness probes |
+| One copy of everything, one machine | No self-healing, no rolling updates | Kubernetes Deployments and Services, Argo CD GitOps |
+| `GET /order` *creates* an order; `/order/order` doubled paths | Unsafe method; confusing URLs | REST API v1 (v3, ADR-0007) |
+
+## Original notes
+
+The README written at step 1 (two services, before Eureka and the gateway) is kept as it was in
+[`docs/stage-1-original-README.md`](docs/stage-1-original-README.md).
