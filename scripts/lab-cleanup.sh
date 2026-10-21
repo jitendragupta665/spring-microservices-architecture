@@ -141,9 +141,12 @@ if curl -fs "$REG_URL/v2/" >/dev/null 2>&1; then
   if $APPLY; then
     docker stop "$REG_CONTAINER" >/dev/null
     trap 'docker start "$REG_CONTAINER" >/dev/null' EXIT
-    n=$(docker run --rm --volumes-from "$REG_CONTAINER" "$REG_IMAGE" \
-          garbage-collect --delete-untagged /etc/distribution/config.yml 2>&1 \
-        | grep -c 'Deleting blob:' || true)
+    # Capture the collector's output and exit status separately: only grep's "no match" may be
+    # tolerated, a failing collector must fail the cleanup (the trap still restarts the registry).
+    gc_out=$(docker run --rm --volumes-from "$REG_CONTAINER" "$REG_IMAGE" \
+               garbage-collect --delete-untagged /etc/distribution/config.yml 2>&1) \
+      || { echo "ERROR: registry garbage-collect failed:"; echo "$gc_out"; exit 1; }
+    n=$(grep -c 'Deleting blob:' <<<"$gc_out" || true)
     docker start "$REG_CONTAINER" >/dev/null; trap - EXIT
     echo "  garbage-collect: $n blobs deleted"
   else
