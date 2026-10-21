@@ -1,4 +1,5 @@
-# CI: build + test every service inside Docker.
+# CI: build + test every service inside Docker, scan each image for known vulnerabilities
+# (Trivy) and scan the git history for leaked secrets (gitleaks). All tools are free and open source.
 #  - Pull requests: verify only (build + tests). Nothing in the cluster changes.
 #  - Push to main (after merge): also tag with the commit SHA and push to the local registry
 #    (localhost:5001); kind nodes pull from it when Argo CD deploys a new tag.
@@ -17,6 +18,12 @@ on:
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main-pipeline' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Scanner images pinned by DIGEST, not tag: in March 2026 attackers re-pointed Trivy release tags
+# to malicious code (CVE-2026-33634). A digest can't be moved; Renovate proposes digest updates.
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
 jobs:
   build:
@@ -45,6 +52,25 @@ jobs:
       - name: Build + test (multi-stage Docker build)
         run: docker build --build-context parent=./shop-parent -t ${{ matrix.service }}:${TAG} ./${{ matrix.dir }}
 
+      - name: Vulnerability scan (Trivy)
+        # Reads every OS package and Java library inside the image and matches them against public
+        # CVE databases. Policy: report HIGH + CRITICAL in the job summary; FAIL only on a CRITICAL
+        # that already has a fix (--ignore-unfixed), so the fix is always "upgrade X to Y".
+        # Runs before the push step: a failing image never reaches the registry.
+        # One cache volume per runner: 4 parallel jobs never write the same vulnerability DB.
+        # --timeout 15m: the default 5m is too short for the first DB download on a busy laptop.
+        run: |
+          scan() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                     -v "trivy-cache-${RUNNER_NAME}:/root/.cache" "$TRIVY_IMAGE" \
+                     image --quiet --timeout 15m --scanners vuln --ignore-unfixed "$@" "${{ matrix.service }}:${TAG}"; }
+          {
+            echo "### Trivy: \`${{ matrix.service }}:${TAG}\` (HIGH and CRITICAL with a fix available)"
+            echo '```'
+            scan --severity HIGH,CRITICAL --format table
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          scan --severity CRITICAL --exit-code 1 --format table
+
       - name: Push image to local registry (main only)
         # Registry = durable source of images: a rebuilt cluster pulls from it (no `kind load` needed).
         # Created by scripts/registry-up.sh; nodes resolve localhost:5001 via containerd hosts.toml.
@@ -58,11 +84,29 @@ jobs:
         run: |
           echo "Built \`${{ matrix.service }}:${TAG}\` (event: ${{ github.event_name }})" >> "$GITHUB_STEP_SUMMARY"
 
+  # Secrets (passwords, API keys, tokens) committed to git stay in history forever, even if a
+  # later commit deletes them, and this repo is public. gitleaks checks every commit's diff
+  # against ~150 rules for known key formats; any hit fails the PR. --redact keeps the
+  # secret itself out of the CI log.
+  secret-scan:
+    name: secret scan (gitleaks)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, kind-lab]
+    steps:
+      - name: Checkout code (full history)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Scan git history for secrets
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" "$GITLEAKS_IMAGE" \
+            git --redact --no-banner --no-color --exit-code 1 /repo
+
   # After every merge to main: delete app images that are not running, not pinned in Git,
   # and not from the last 3 main commits. See scripts/lab-cleanup.sh for the rules.
   cleanup:
     name: cleanup old images
-    needs: build                       # only after ALL 4 builds succeeded
+    needs: [build, secret-scan]        # only after ALL 4 builds and the secret scan succeeded
     if: github.event_name == 'push'
     runs-on: [self-hosted, linux, kind-lab]
     concurrency:
