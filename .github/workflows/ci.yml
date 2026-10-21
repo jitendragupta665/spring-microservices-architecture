@@ -41,6 +41,15 @@ jobs:
           - {service: order-service, dir: order-service}
           - {service: api-gateway,   dir: api-gateway}
     steps:
+      - name: Docker config without the Windows credential helper
+        # The runner user's ~/.docker/config.json says credsStore=desktop.exe (Docker Desktop):
+        # every pull calls a Windows .exe through WSL interop, which times out under load
+        # ("error getting credentials"). CI pulls only public images and pushes to the
+        # unauthenticated local registry, so it needs no credentials: use an empty config.
+        # buildx and other CLI plugins are found in /usr/local/lib/docker/cli-plugins.
+        run: |
+          mkdir -p "$RUNNER_TEMP/docker" && echo '{}' > "$RUNNER_TEMP/docker/config.json"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - name: Checkout code
         uses: actions/checkout@v5
 
@@ -121,6 +130,15 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, kind-lab]
     steps:
+      - name: Docker config without the Windows credential helper
+        # The runner user's ~/.docker/config.json says credsStore=desktop.exe (Docker Desktop):
+        # every pull calls a Windows .exe through WSL interop, which times out under load
+        # ("error getting credentials"). CI pulls only public images and pushes to the
+        # unauthenticated local registry, so it needs no credentials: use an empty config.
+        # buildx and other CLI plugins are found in /usr/local/lib/docker/cli-plugins.
+        run: |
+          mkdir -p "$RUNNER_TEMP/docker" && echo '{}' > "$RUNNER_TEMP/docker/config.json"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - name: Checkout code (full history)
         uses: actions/checkout@v5
         with:
@@ -141,6 +159,15 @@ jobs:
       group: lab-cleanup               # never two cleanups at the same time
       cancel-in-progress: false
     steps:
+      - name: Docker config without the Windows credential helper
+        # The runner user's ~/.docker/config.json says credsStore=desktop.exe (Docker Desktop):
+        # every pull calls a Windows .exe through WSL interop, which times out under load
+        # ("error getting credentials"). CI pulls only public images and pushes to the
+        # unauthenticated local registry, so it needs no credentials: use an empty config.
+        # buildx and other CLI plugins are found in /usr/local/lib/docker/cli-plugins.
+        run: |
+          mkdir -p "$RUNNER_TEMP/docker" && echo '{}' > "$RUNNER_TEMP/docker/config.json"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - name: Checkout code
         uses: actions/checkout@v5
       - name: Prune old lab images

@@ -37,6 +37,14 @@ if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
 else
   kind create cluster --config k8s/kind-cluster.yaml --name "$CLUSTER" --wait 0s
 fi
+# A cluster created before the Calico switch still runs kindnet (disableDefaultCNI only applies
+# at creation). Two CNIs at once is undefined, and kindnet's policy agent is what wedged DNS
+# when NetworkPolicies exist (ADR-0004). Never "upgrade" in place: recreate.
+if $K -n kube-system get daemonset kindnet >/dev/null 2>&1; then
+  echo "ERROR: cluster '$CLUSTER' still runs kindnet (created before the Calico switch)."
+  echo "       Recreate it: scripts/lab-down.sh && scripts/lab-up.sh  (images are kept)"
+  exit 1
+fi
 done_step "cluster"
 
 # ---- 2. CNI: Calico (nodes are NotReady until pod networking exists) ----------

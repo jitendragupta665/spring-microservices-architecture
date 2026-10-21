@@ -19,51 +19,7 @@ patches:
         name: argocd-cmd-params-cm
       data:
         server.insecure: "true"
-  # LAB TRADE-OFF: drop upstream's NetworkPolicies. kindnet's policy engine (kube-network-policies
-  # via NRI + nfqueue 101) wedges on this WSL2 host: containerd times out its NRI plugin and the
-  # queue stops being read while still bound, so `queue flags bypass` never kicks in and every new
-  # connection of a policy-selected pod (DNS included) hangs. These 7 are the only policies in the
-  # cluster, so removing them takes every pod out of the queue path. Restore once the lab runs a
-  # CNI with reliable policy enforcement (Calico/Cilium).
-  - patch: |-
-      $patch: delete
-      apiVersion: networking.k8s.io/v1
-      kind: NetworkPolicy
-      metadata:
-        name: argocd-application-controller-network-policy
-  - patch: |-
-      $patch: delete
-      apiVersion: networking.k8s.io/v1
-      kind: NetworkPolicy
-      metadata:
-        name: argocd-applicationset-controller-network-policy
-  - patch: |-
-      $patch: delete
-      apiVersion: networking.k8s.io/v1
-      kind: NetworkPolicy
-      metadata:
-        name: argocd-dex-server-network-policy
-  - patch: |-
-      $patch: delete
-      apiVersion: networking.k8s.io/v1
-      kind: NetworkPolicy
-      metadata:
-        name: argocd-notifications-controller-network-policy
-  - patch: |-
-      $patch: delete
-      apiVersion: networking.k8s.io/v1
-      kind: NetworkPolicy
-      metadata:
-        name: argocd-redis-network-policy
-  - patch: |-
-      $patch: delete
-      apiVersion: networking.k8s.io/v1
-      kind: NetworkPolicy
-      metadata:
-        name: argocd-repo-server-network-policy
-  - patch: |-
-      $patch: delete
-      apiVersion: networking.k8s.io/v1
-      kind: NetworkPolicy
-      metadata:
-        name: argocd-server-network-policy
+# Upstream's 7 NetworkPolicies are kept (they were deleted from 2026-10 while the lab ran
+# kindnet, whose nfqueue policy path wedged DNS for every policy-selected pod on this WSL2
+# host). Since the lab runs Calico (k8s/platform/calico), policies are enforced by kernel
+# rules written ahead of time, and the policies are back. See docs/adr/0004-calico-cni.md.
