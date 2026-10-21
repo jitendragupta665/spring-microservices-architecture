@@ -1,21 +1,24 @@
-# CI: on every push to main, build + test each service inside Docker,
-# tag the image with the commit SHA, and load it into the local kind cluster "lab".
+# CI: build + test every service inside Docker.
+#  - Pull requests: verify only (build + tests). Nothing in the cluster changes.
+#  - Push to main (after merge): also tag with the commit SHA and load into kind.
 name: CI
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
-  workflow_dispatch: {}     # "Run workflow" button in the Actions tab
-  # No pull_request trigger on purpose: this is a PUBLIC repo and the runner is the
-  # owner's laptop. A PR from a fork would otherwise run a stranger's code on it.
+  workflow_dispatch: {}
 
 jobs:
   build:
     name: build ${{ matrix.service }}
-    # Only the runner registered with these labels (the one in WSL) picks this job up
+    # PUBLIC repo + self-hosted runner on the owner's laptop:
+    # only run PRs whose branch lives in THIS repo, never PRs from forks.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, kind-lab]
     strategy:
-      fail-fast: false      # one failing service does not cancel the others
+      fail-fast: false
       matrix:
         include:
           - {service: eureka,        dir: discovery-server}
@@ -24,18 +27,19 @@ jobs:
           - {service: api-gateway,   dir: api-gateway}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Compute image tag (short commit SHA)
         run: |
           echo "TAG=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"   # where kind is installed
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build + test (multi-stage Docker build)
         run: docker build -t ${{ matrix.service }}:${TAG} ./${{ matrix.dir }}
 
-      - name: Load image into kind cluster
+      - name: Load image into kind cluster (main only)
+        if: github.event_name != 'pull_request'
         run: kind load docker-image ${{ matrix.service }}:${TAG} --name lab
 
       - name: Summary
-        run: echo "Built and loaded \`${{ matrix.service }}:${TAG}\`" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Built \`${{ matrix.service }}:${TAG}\` (event: ${{ github.event_name }})" >> "$GITHUB_STEP_SUMMARY"
