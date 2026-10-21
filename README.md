@@ -1,450 +1,74 @@
-# Microservices Architecture
+# Spring microservices lab
 
-A production-ready Spring Boot microservices architecture with inter-service communication. This project demonstrates a scalable, containerized microservices setup with two independent services: Order Service and User Service.
+A learning lab that builds a small shop backend the way a production team would: Spring Boot
+services, Docker images, Kubernetes (kind), GitHub Actions CI and Argo CD GitOps.
 
-## Architecture Overview
+**Status: early.** The platform pipeline works end to end; the services are still placeholders
+with no domain logic or database. It is not production-ready. Work follows a 10-phase plan
+(below); each phase ends with an automated exit check.
+
+## What runs today
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│           Docker Network (micro-net)                    │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  ┌──────────────────────┐   ┌──────────────────────┐  │
-│  │   Order Service      │   │   User Service       │  │
-│  │   (Port: 8081)       │ ─→│   (Port: 8080)       │  │
-│  │                      │   │                      │  │
-│  │ GET /order           │   │ GET /user            │  │
-│  └──────────────────────┘   └──────────────────────┘  │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
+localhost:80 -> ingress-nginx -> api-gateway -> order-service -> user-service
+                                     (service discovery: Eureka)
 ```
 
-## Services
+| Service | Port | What it does today |
+| --- | --- | --- |
+| api-gateway | 8085 | Routes `/order/**` and `/user/**`; exposes only `/actuator/health` and `/actuator/info` |
+| order-service | 8081 | `GET /order` calls user-service (1 s connect / 2 s read timeouts) |
+| user-service | 8080 | `GET /user` returns a placeholder string |
+| discovery-server | 8761 | Eureka registry |
 
-### 1. User Service
-- **Port:** 8080
-- **Technology:** Spring Boot 4.0.2, Java 21
-- **Endpoints:**
-  - `GET /user` - Returns user information (Rahul, age 22)
-- **Purpose:** Provides user data for other services
+## Repository layout
 
-### 2. Order Service
-- **Port:** 8081
-- **Technology:** Spring Boot 4.0.2, Java 21
-- **Endpoints:**
-  - `GET /order` - Creates an order and fetches user information from User Service
-- **Purpose:** Order management and inter-service orchestration
+| Path | Contents |
+| --- | --- |
+| `*/` (one folder per service) | Spring Boot service, multi-stage `Dockerfile` (tests run during the image build) |
+| `.github/workflows/ci.yml` | CI: build and test every service on PRs; on `main` also tag `<service>:<sha7>`, load into kind, clean up old images |
+| `k8s/kind-cluster.yaml` | Local cluster: 1 control-plane + 2 workers, ports 80/443 mapped to the laptop |
+| `k8s/apps/` | Application manifests (namespace `shop`); image tags pinned in `kustomization.yaml` |
+| `k8s/platform/` | ingress-nginx and Argo CD, deployed by Argo CD itself |
+| `k8s/argocd/` | App-of-apps: `root.yaml` (applied once) and the child Applications |
+| `scripts/lab-cleanup.sh` | Deletes old CI images (keeps running, pinned and last 3 main builds) |
+| `docker-compose.yml` | Legacy local setup from before Kubernetes; not maintained |
 
-## Prerequisites
+## Run the lab
 
-- **Java 21+**
-- **Maven 3.6+**
-- **Docker** and **Docker Compose** (for containerized deployment)
-- **Git**
+Prerequisites: Docker, kind, kubectl.
 
-### Installation
 ```bash
-# Verify Java version
-java -version
-
-# Verify Maven version
-mvn -version
-
-# Verify Docker
-docker --version
+kind create cluster --config k8s/kind-cluster.yaml
+kubectl create namespace argocd
+kubectl apply -n argocd --server-side -k k8s/platform/argocd   # Argo CD
+kubectl apply -f k8s/argocd/root.yaml                          # Argo CD deploys everything else from Git
+curl http://localhost/order/order
 ```
 
-## Project Structure
-
-```
-microservices/
-├── order-service/              # Order Service microservice
-│   ├── src/
-│   │   ├── main/java/com/example/order_service/
-│   │   │   ├── OrderServiceApplication.java
-│   │   │   ├── client/
-│   │   │   │   └── UserClient.java          # REST client for User Service
-│   │   │   ├── controller/
-│   │   │   │   └── OrderController.java     # REST endpoints
-│   │   │   └── service/
-│   │   │       └── OrderService.java        # Business logic
-│   │   ├── main/resources/
-│   │   │   └── application.properties
-│   │   └── test/
-│   ├── pom.xml
-│   └── Dockerfile
-│
-├── user-service/               # User Service microservice
-│   ├── src/
-│   │   ├── main/java/com/example/user_service/
-│   │   │   ├── UserServiceApplication.java
-│   │   │   ├── controller/
-│   │   │   │   └── UserController.java      # REST endpoints
-│   │   │   ├── model/
-│   │   │   │   └── User.java                # Data model
-│   │   │   └── service/
-│   │   │       └── UserService.java         # Business logic
-│   │   ├── main/resources/
-│   │   │   └── application.properties
-│   │   └── test/
-│   ├── pom.xml
-│   └── Dockerfile
-│
-├── docker-compose.yml          # Container orchestration
-└── README.md                   # This file
-```
-
-## Getting Started
-
-### Development Mode (Without Docker)
-
-#### 1. Clone and Navigate
-```bash
-git clone <your-repo-url>
-cd microservices
-```
-
-#### 2. Build Both Services
-```bash
-# Build User Service
-cd user-service
-mvn clean install
-
-# Build Order Service
-cd ../order-service
-mvn clean install
-```
-
-#### 3. Run Services (in separate terminals)
-
-**Terminal 1 - User Service:**
-```bash
-cd user-service
-mvn spring-boot:run
-```
-Expected output:
-```
-Tomcat initialized with port 8080 (http)
-```
-
-**Terminal 2 - Order Service:**
-```bash
-cd order-service
-mvn spring-boot:run
-```
-Expected output:
-```
-Tomcat initialized with port 8081 (http)
-```
-
-#### 4. Test the Services
-
-**User Service:**
-```bash
-curl http://localhost:8080/user
-# Response: {"name":"Rahul","age":22}
-```
-
-**Order Service:**
-```bash
-curl http://localhost:8081/order
-# Response: Order created for -> {"name":"Rahul","age":22}
-```
-
-### Production Mode (With Docker & Docker Compose)
-
-#### 1. Build Docker Images
-
-Build individual services:
-```bash
-# Build User Service image
-cd user-service
-docker build -t user-service:1.0 .
-
-# Build Order Service image
-cd ../order-service
-docker build -t order-service:1.0 .
-```
-
-Or build all at once using Docker Compose:
-```bash
-docker-compose build
-```
-
-#### 2. Create Docker Network
-```bash
-docker network create micro-net
-```
-
-#### 3. Run with Docker Compose
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-```
-
-Or run manually:
-```bash
-# Terminal 1 - User Service
-docker run -d \
-  --name user-service \
-  --network micro-net \
-  -p 8080:8080 \
-  user-service:1.0
-
-# Terminal 2 - Order Service
-docker run -d \
-  --name order-service \
-  --network micro-net \
-  -p 8081:8081 \
-  order-service:1.0
-```
-
-#### 4. Test Docker Containers
-```bash
-# Test User Service
-curl http://localhost:8080/user
-
-# Test Order Service
-curl http://localhost:8081/order
-```
-
-#### 5. Cleanup
-```bash
-# Stop and remove containers
-docker-compose down
-
-# Or manually
-docker stop user-service order-service
-docker rm user-service order-service
-docker network rm micro-net
-```
-
-## Configuration
-
-### User Service - `user-service/src/main/resources/application.properties`
-```properties
-server.port=8080
-spring.application.name=user-service
-```
-
-### Order Service - `order-service/src/main/resources/application.properties`
-```properties
-server.port=8081
-spring.application.name=order-service
-```
-
-### Environment-Specific Configurations
-Create additional properties files:
-- `application-dev.properties` - Development settings
-- `application-prod.properties` - Production settings
-
-Run with specific profile:
-```bash
-mvn spring-boot:run -Dspring-boot.run.arguments="--spring.profiles.active=dev"
-```
-
-## Building & Testing
-
-### Build
-```bash
-mvn clean package
-```
-
-### Run Tests
-```bash
-mvn test
-```
-
-### Run Tests for Specific Service
-```bash
-cd user-service
-mvn test
-
-cd ../order-service
-mvn test
-```
-
-### Code Quality & Linting
-```bash
-# Using Maven plugins (if configured)
-mvn checkstyle:check
-mvn spotbugs:check
-```
-
-## Deployment
-
-### Local Development Deployment
-1. Run `mvn clean install` in each service directory
-2. Use `mvn spring-boot:run` to start services
-3. Services communicate via `localhost:port`
-
-### Docker Container Deployment
-1. Build images using `docker build`
-2. Push to Docker registry (Docker Hub, AWS ECR, etc.)
-3. Deploy using Docker Compose or Kubernetes
-
-### Kubernetes Deployment (Optional)
-Create deployment manifests:
-- Service definitions
-- Deployment specs
-- ConfigMap for configurations
-- Service discovery using DNS
-
-## API Documentation
-
-### User Service
-
-| Method | Endpoint | Description | Response |
-|--------|----------|-------------|----------|
-| GET | `/user` | Get user information | `{"name":"Rahul","age":22}` |
-
-### Order Service
-
-| Method | Endpoint | Description | Response |
-|--------|----------|-------------|----------|
-| GET | `/order` | Create order and fetch user info | `"Order created for -> {"name":"Rahul","age":22}"` |
-
-## Troubleshooting
-
-### Issue: Port Already in Use
-```bash
-# Windows
-netstat -ano | findstr :8080
-taskkill /PID <PID> /F
-
-# Linux/Mac
-lsof -i :8080
-kill -9 <PID>
-```
-
-### Issue: Docker Network Not Found
-```bash
-# Create network if missing
-docker network create micro-net
-
-# Verify network exists
-docker network ls
-```
-
-### Issue: Service Connection Error
-Ensure:
-- Both containers are running: `docker ps`
-- Both are on the same network: `docker network inspect micro-net`
-- Correct service names are used in connections
-- Firewall rules allow inter-container communication
-
-### Issue: Maven Build Fails
-```bash
-# Clear Maven cache
-mvn clean
-
-# Rebuild
-mvn install -U
-
-# Force dependency update
-mvn dependency:purge-local-repository
-```
-
-## Dependencies
-
-### Core Dependencies
-- **Spring Boot Starter WebMVC** - Web framework
-- **Spring Boot DevTools** - Development reload support
-- **Lombok** - Boilerplate code reduction
-
-### Testing
-- **Spring Boot Test Starter** - Testing framework
-
-## Best Practices
-
-1. **Containerization:** Always containerize services for consistency
-2. **Network Isolation:** Use named networks for inter-service communication
-3. **Service Discovery:** Use DNS naming for container communication
-4. **Health Checks:** Implement health check endpoints
-5. **Logging:** Centralize logs using ELK, Splunk, or cloud solutions
-6. **Monitoring:** Use Prometheus and Grafana for metrics
-7. **Configuration Management:** Use ConfigMap or environment variables
-8. **Error Handling:** Implement proper exception handling and error responses
-9. **API Versioning:** Include version in endpoints (e.g., `/api/v1/user`)
-10. **Documentation:** Keep API documentation updated with Swagger/OpenAPI
-
-## Monitoring & Logging
-
-### Enable Debug Logging
-Add to `application.properties`:
-```properties
-logging.level.root=INFO
-logging.level.com.example=DEBUG
-logging.level.web=DEBUG
-```
-
-### Spring Actuator (Optional)
-Add dependency:
-```xml
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-actuator</artifactId>
-</dependency>
-```
-
-Endpoints:
-- `/actuator/health` - Health status
-- `/actuator/metrics` - Application metrics
-- `/actuator/env` - Environment details
-
-## Performance Optimization
-
-1. **Connection Pooling:** Configure database connection pools
-2. **Caching:** Implement Redis for distributed caching
-3. **Load Balancing:** Use Nginx or HAProxy
-4. **Rate Limiting:** Implement rate limiting for APIs
-5. **Async Processing:** Use async/reactive patterns for I/O operations
-
-## Security
-
-- Implement OAuth 2.0 / JWT for authentication
-- Use HTTPS for all external communication
-- Enable CORS only for trusted origins
-- Sanitize inputs to prevent injection attacks
-- Implement rate limiting to prevent DDoS
-- Use secrets management (Vault, AWS Secrets Manager)
-
-## Contributing
-
-1. Create a feature branch: `git checkout -b feature/feature-name`
-2. Commit changes: `git commit -m "Add feature description"`
-3. Push to branch: `git push origin feature/feature-name`
-4. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see LICENSE file for details.
-
-## Support
-
-For issues and questions:
-- Create an issue in the repository
-- Contact the development team
-- Check existing documentation
-
-## Changelog
-
-### Version 1.0.0 (Initial Release)
-- User Service basic implementation
-- Order Service basic implementation
-- Docker support
-- Basic inter-service communication
-
-## Resources
-
-- [Spring Boot Documentation](https://spring.io/projects/spring-boot)
-- [Docker Documentation](https://docs.docker.com/)
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
-- [Maven Documentation](https://maven.apache.org/guides/)
-- [Java 21 Features](https://openjdk.org/projects/jdk/21/)
+The app images are only in kind's node caches today, so a brand-new cluster cannot pull them yet.
+A local registry (phase 2) fixes that.
+
+## How a change ships
+
+1. Branch, commit, open a PR. `main` is protected: PR required, 4 build checks must pass,
+   review conversations must be resolved.
+2. CI builds and tests each service in parallel on self-hosted runners.
+3. After merge, CI builds `<service>:<sha7>` and loads it into the cluster.
+4. A PR that changes the tag in `k8s/apps/kustomization.yaml` is the deploy request; Argo CD
+   syncs the cluster to `main`.
+
+## Roadmap
+
+| Phase | Goal |
+| --- | --- |
+| 0 | Close the actuator exposure on the gateway; correct this README |
+| 1 | Engineering foundation: shared parent POM, CI stages, static analysis, security scans, ADRs |
+| 2 | Reproducible platform: local registry, one-command lab rebuild, Calico CNI |
+| 3 | Domain v1: user, catalog, order on PostgreSQL; hexagonal design; contract tests |
+| 4 | Events: Kafka, payment, notification, outbox, saga |
+| 5 | Delivery automation: tag-bump PRs, post-deploy tests, automatic rollback |
+| 6 | Observability and performance: OpenTelemetry, Prometheus, Grafana, k6, SLOs |
+| 7 | Edge and security: Gateway API, JWT auth, rate limits, Sealed Secrets |
+| 8 | Caching and scaling: Redis, HPA, read replicas |
+| 9 | Cloud and infrastructure as code: Terraform, managed Kubernetes |
