@@ -14,13 +14,13 @@ resources:
 images:
   - name: eureka
     newName: localhost:5001/eureka
-    newTag: "8aa77ff"
+    newTag: "1773899"
   - name: user-service
     newName: localhost:5001/user-service
-    newTag: "8aa77ff"
+    newTag: "1773899"
   - name: order-service
     newName: localhost:5001/order-service
-    newTag: "8aa77ff"
+    newTag: "1773899"
   - name: api-gateway
     newName: localhost:5001/api-gateway
-    newTag: "8aa77ff"
+    newTag: "1773899"
