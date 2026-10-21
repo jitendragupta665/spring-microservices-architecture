@@ -1,6 +1,7 @@
 package com.example.order_service.domain;
 
 import com.example.order_service.client.UserClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -25,6 +26,7 @@ public class OrderService {
     private final Map<Long, Order> orders = new ConcurrentHashMap<>();   // safe for parallel requests
     private final AtomicLong nextId = new AtomicLong(1);
 
+    @Autowired   // two constructors: tell Spring which one to use (the other is for tests)
     public OrderService(UserClient userClient) {
         this(userClient, Clock.systemUTC());
     }
