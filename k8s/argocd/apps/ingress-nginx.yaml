@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: ingress-nginx
   namespace: argocd
+  # Cascade delete: removing this file from Git deletes the app's workloads too,
+  # instead of leaving them orphaned in the cluster.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
