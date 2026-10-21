@@ -21,19 +21,23 @@ spec:
           env:
             - name: JAVA_TOOL_OPTIONS
               value: "-XX:MaxRAMPercentage=75"
-            - name: EUREKA_INSTANCE_PREFERIPADDRESS
-              value: "true"
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits:   {memory: 512Mi}
-          # NOT /order: that endpoint calls user-service, so if user-service had a blip,
-          # every order pod would be marked unready too and the failure would cascade.
-          # A readiness check should answer "can THIS process take traffic?", so we only
-          # check that Tomcat accepts TCP connections on 8081.
-          readinessProbe:
-            tcpSocket: {port: 8081}
-            initialDelaySeconds: 10
+          # Actuator probe groups (management.endpoint.health.probes.enabled=true). They answer
+          # "can THIS process serve?" and do NOT call user-service: if a dependency's blip marked
+          # every order pod unready, the failure would cascade into a full outage.
+          readinessProbe:     # "send me traffic": the app finished starting and can serve requests
+            httpGet: {path: /actuator/health/readiness, port: 8081}
             periodSeconds: 5
+          startupProbe:       # JVM start can take minutes on a busy laptop: allow up to 36 x 5 s = 3 min.
+            httpGet: {path: /actuator/health/liveness, port: 8081}   # Liveness only counts after this passes
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:      # "restart me": the process is stuck. 3 misses in a row (30 s) -> restart
+            httpGet: {path: /actuator/health/liveness, port: 8081}
+            periodSeconds: 10
+            failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service

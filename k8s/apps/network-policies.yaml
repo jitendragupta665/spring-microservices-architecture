@@ -13,7 +13,6 @@
 #   ingress-nginx  -> api-gateway   :8085
 #   api-gateway    -> order-service :8081, user-service :8080
 #   order-service  -> user-service  :8080
-#   gateway, order, user -> eureka  :8761  (registration + lookups)
 #   every shop pod -> CoreDNS       :53    (name resolution)
 ---
 apiVersion: networking.k8s.io/v1
@@ -66,8 +65,6 @@ spec:
       ports: [{protocol: TCP, port: 8081}]
     - to: [{podSelector: {matchLabels: {app: user-service}}}]
       ports: [{protocol: TCP, port: 8080}]
-    - to: [{podSelector: {matchLabels: {app: eureka}}}]
-      ports: [{protocol: TCP, port: 8761}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -84,8 +81,6 @@ spec:
   egress:
     - to: [{podSelector: {matchLabels: {app: user-service}}}]
       ports: [{protocol: TCP, port: 8080}]
-    - to: [{podSelector: {matchLabels: {app: eureka}}}]
-      ports: [{protocol: TCP, port: 8761}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -101,22 +96,4 @@ spec:
         - podSelector: {matchLabels: {app: api-gateway}}
         - podSelector: {matchLabels: {app: order-service}}
       ports: [{protocol: TCP, port: 8080}]
-  egress:
-    - to: [{podSelector: {matchLabels: {app: eureka}}}]
-      ports: [{protocol: TCP, port: 8761}]
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: eureka
-  namespace: shop
-spec:
-  podSelector:
-    matchLabels: {app: eureka}
-  policyTypes: [Ingress, Egress]   # egress: none (eureka.client.register-with-eureka=false)
-  ingress:
-    - from:
-        - podSelector: {matchLabels: {app: api-gateway}}
-        - podSelector: {matchLabels: {app: order-service}}
-        - podSelector: {matchLabels: {app: user-service}}
-      ports: [{protocol: TCP, port: 8761}]
+  # Egress: none beyond DNS (allow-dns-egress). user-service calls nobody.

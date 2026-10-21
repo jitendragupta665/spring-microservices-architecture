@@ -2,7 +2,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - 00-namespace.yaml
-  - eureka.yaml
   - user-service.yaml
   - order-service.yaml
   - api-gateway.yaml
@@ -13,15 +12,12 @@ resources:
 # cluster can start the apps without loading images by hand.
 # newTag = first 7 chars of the main commit that CI built and loaded into kind.
 images:
-  - name: eureka
-    newName: localhost:5001/eureka
-    newTag: "1773899"
   - name: user-service
     newName: localhost:5001/user-service
-    newTag: "1773899"
+    newTag: "655bdaa"
   - name: order-service
     newName: localhost:5001/order-service
-    newTag: "1773899"
+    newTag: "655bdaa"
   - name: api-gateway
     newName: localhost:5001/api-gateway
-    newTag: "1773899"
+    newTag: "655bdaa"

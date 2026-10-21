@@ -73,10 +73,10 @@ scripts/lab-down.sh   # delete the cluster (the registry and its images are kept
 | Local registry (`scripts/registry-up.sh`) | Nodes must be able to pull images before anything deploys |
 | Images for the pinned tag | Built from that commit only if the registry volume does not have them |
 | Argo CD + `k8s/argocd/root.yaml` | Bootstrap; from here Argo CD deploys ingress-nginx and the shop from Git |
-| Smoke test | 5 consecutive `200` from `http://localhost/order/order` |
+| Smoke test | 5 consecutive `200` from `GET /api/v1/users/1`, then `201` from `POST /api/v1/orders` |
 
 Disaster-recovery drill (2026-10-21, laptop with 8 GB RAM): `lab-down.sh` then `lab-up.sh` brought
-`/order/order` back in **523 s**: cluster 53 s, Calico + nodes 183 s (image pulls),
+the shop back (then still `/order/order`, with Eureka) in **523 s**: cluster 53 s, Calico + nodes 183 s (image pulls),
 registry 3 s, images 0 s (already in the registry volume), Argo CD 131 s, GitOps sync 115 s,
 smoke test 32 s.
 
