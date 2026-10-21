@@ -1,6 +1,7 @@
 # CI: build + test every service inside Docker.
 #  - Pull requests: verify only (build + tests). Nothing in the cluster changes.
-#  - Push to main (after merge): also tag with the commit SHA and load into kind.
+#  - Push to main (after merge): also tag with the commit SHA and push to the local registry
+#    (localhost:5001); kind nodes pull from it when Argo CD deploys a new tag.
 name: CI
 
 on:
@@ -10,7 +11,7 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
-# main: one run at a time, in order. Build -> kind load -> cleanup of merge A must finish before
+# main: one run at a time, in order. Build -> registry push -> cleanup of merge A must finish before
 # merge B starts, otherwise A's cleanup can delete images B just built (shared Docker host + cluster).
 # PRs: a new push cancels that PR's older run (saves runner time).
 concurrency:
@@ -44,9 +45,13 @@ jobs:
       - name: Build + test (multi-stage Docker build)
         run: docker build -t ${{ matrix.service }}:${TAG} ./${{ matrix.dir }}
 
-      - name: Load image into kind cluster (main only)
+      - name: Push image to local registry (main only)
+        # Registry = durable source of images: a rebuilt cluster pulls from it (no `kind load` needed).
+        # Created by scripts/registry-up.sh; nodes resolve localhost:5001 via containerd hosts.toml.
         if: github.event_name != 'pull_request'
-        run: kind load docker-image ${{ matrix.service }}:${TAG} --name lab
+        run: |
+          docker tag ${{ matrix.service }}:${TAG} localhost:5001/${{ matrix.service }}:${TAG}
+          docker push localhost:5001/${{ matrix.service }}:${TAG}
 
       - name: Summary
         # Block scalar (|): the shell line can contain ": " without breaking YAML

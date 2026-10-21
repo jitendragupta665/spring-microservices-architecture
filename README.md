@@ -26,12 +26,13 @@ localhost:80 -> ingress-nginx -> api-gateway -> order-service -> user-service
 | Path | Contents |
 | --- | --- |
 | `*/` (one folder per service) | Spring Boot service, multi-stage `Dockerfile` (tests run during the image build) |
-| `.github/workflows/ci.yml` | CI: build and test every service on PRs; on `main` also tag `<service>:<sha7>`, load into kind, clean up old images |
+| `.github/workflows/ci.yml` | CI: build and test every service on PRs; on `main` also push `<service>:<sha7>` to the local registry and clean up old images |
 | `k8s/kind-cluster.yaml` | Local cluster: 1 control-plane + 2 workers, ports 80/443 mapped to the laptop |
 | `k8s/apps/` | Application manifests (namespace `shop`); image tags pinned in `kustomization.yaml` |
 | `k8s/platform/` | ingress-nginx and Argo CD, deployed by Argo CD itself |
 | `k8s/argocd/` | App-of-apps: `root.yaml` (applied once) and the child Applications |
-| `scripts/lab-cleanup.sh` | Deletes old CI images (keeps running, pinned and last 3 main builds) |
+| `scripts/registry-up.sh` | Local image registry `kind-registry` on `localhost:5001`, wired into every kind node |
+| `scripts/lab-cleanup.sh` | Deletes old CI images from the host, the nodes and the registry (keeps running, pinned and last 3 main builds) |
 | `docker-compose.yml` | Legacy local setup from before Kubernetes; not maintained |
 
 ## Run the lab
@@ -40,14 +41,18 @@ Prerequisites: Docker, kind, kubectl.
 
 ```bash
 kind create cluster --config k8s/kind-cluster.yaml
+scripts/registry-up.sh        # local registry on localhost:5001, wired into every node
 
-# A new cluster has no app images: there is no registry yet (phase 2), so build the exact
-# commit pinned in k8s/apps/kustomization.yaml and load it into the kind nodes.
+# The registry keeps its images in a Docker volume, so they survive a cluster rebuild.
+# First run only (empty registry): build the exact commit pinned in k8s/apps/kustomization.yaml
+# and push any image that is missing.
 TAG=$(awk '/newTag:/{gsub(/"/,"",$2); print $2; exit}' k8s/apps/kustomization.yaml)
+ACCEPT='application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
 git worktree add /tmp/pinned "$TAG"
 for pair in eureka:discovery-server user-service:user-service order-service:order-service api-gateway:api-gateway; do
   img=${pair%%:*}; dir=${pair#*:}
-  docker build -t "$img:$TAG" "/tmp/pinned/$dir" && kind load docker-image "$img:$TAG" --name lab
+  curl -sf -H "Accept: $ACCEPT" "http://localhost:5001/v2/$img/manifests/$TAG" >/dev/null && continue
+  docker build -t "localhost:5001/$img:$TAG" "/tmp/pinned/$dir" && docker push "localhost:5001/$img:$TAG"
 done
 git worktree remove /tmp/pinned
 
@@ -71,7 +76,7 @@ The loop assumes every service is pinned to the same tag, which is true today.
 1. Branch, commit, open a PR. `main` is protected: PR required, 4 build checks must pass,
    review conversations must be resolved.
 2. CI builds and tests each service in parallel on self-hosted runners.
-3. After merge, CI builds `<service>:<sha7>` and loads it into the cluster.
+3. After merge, CI builds `<service>:<sha7>` and pushes it to the local registry.
 4. A PR that changes the tag in `k8s/apps/kustomization.yaml` is the deploy request; Argo CD
    syncs the cluster to `main`.
 
