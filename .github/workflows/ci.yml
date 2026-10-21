@@ -65,5 +65,5 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           # Fetch the LATEST main, not just this run's commit: a newer merge may already have
           # loaded its images, and they must be in the keep set.
-          git fetch --depth=5 origin main
+          git fetch --depth=30 origin main
           scripts/lab-cleanup.sh --apply
