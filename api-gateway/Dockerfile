@@ -6,7 +6,10 @@ COPY pom.xml .
 COPY src ./src
 # Cache mount keeps ~/.m2 between builds on the same machine, so dependencies are
 # downloaded once, not on every build. Tests run here: a failing test fails the build.
-RUN --mount=type=cache,target=/root/.m2 mvn -q package
+# The /root/.m2 cache mount is shared by builds that run in parallel (4 CI runners).
+# Maven's default lock only works inside one JVM; file-lock + file-gav lock each
+# artifact on disk so two builds never write the same file at the same time.
+RUN --mount=type=cache,target=/root/.m2 mvn -q -Daether.syncContext.named.factory=file-lock -Daether.syncContext.named.nameMapper=file-gav package
 
 # ---------- Stage 2: runtime image (only a JRE + the JAR) ----------
 FROM eclipse-temurin:21-jre
