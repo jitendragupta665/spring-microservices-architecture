@@ -26,6 +26,7 @@ KEEP=${KEEP:-3}
 CLUSTER=${CLUSTER:-lab}
 KCTX=${KCTX:-kind-$CLUSTER}      # always query the SAME cluster we prune, never the current context
 CACHE_MAX=${CACHE_MAX:-3gb}      # docker 29+: `builder prune --max-used-space` (older CLIs: --keep-storage)
+# eureka was retired (ADR-0006); it stays in this list so its leftover images are pruned too.
 SERVICES="eureka user-service order-service api-gateway"
 SVC_RE="^($(echo $SERVICES | tr ' ' '|')):"
 REGISTRY=${REGISTRY:-localhost:5001}

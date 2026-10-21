@@ -1,6 +1,6 @@
 # ADR-0005: Default-deny NetworkPolicies for the shop namespace
 
-- **Status:** Accepted
+- **Status:** Accepted; the Eureka rules were removed by ADR-0006 (Eureka retired)
 - **Date:** 2026-10-22
 - **Related:** ADR-0004 (Calico, which enforces these rules), `k8s/apps/network-policies.yaml`
 

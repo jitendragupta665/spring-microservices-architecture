@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 CLUSTER=${CLUSTER:-lab}
 CTX=kind-$CLUSTER
 K="kubectl --context $CTX"
-SERVICES="eureka:discovery-server user-service:user-service order-service:order-service api-gateway:api-gateway"
+SERVICES="user-service:user-service order-service:order-service api-gateway:api-gateway"
 
 START=$(date +%s); T=$START; REPORT=""
 step() { echo; echo "==> $*"; }
@@ -101,16 +101,22 @@ $K -n argocd wait application/ingress-nginx application/shop \
 done_step "gitops sync (apps Healthy)"
 
 # ---- 6. smoke test through the front door ------------------------------------------
-step "smoke test: GET http://localhost/order/order"
-# Pods are Healthy before Eureka has every registration, so allow ~3 min of retries.
+step "smoke test: GET /api/v1/users/1 and POST /api/v1/orders through http://localhost"
+# Pods can be Ready a moment before ingress-nginx has their endpoints, so allow ~3 min of retries.
+# Read check: 5 consecutive 200s. Write check: one order really gets created (201 = the whole
+# chain ingress -> gateway -> order-service -> user-service works, including the NetworkPolicies).
 ok=0
 for i in $(seq 1 36); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost/order/order || true)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost/api/v1/users/1 || true)
   if [ "$code" = 200 ]; then ok=$((ok+1)); [ $ok -ge 5 ] && break; else ok=0; fi
   sleep 5
 done
-[ $ok -ge 5 ] || { echo "ERROR: /order/order not stable (last status $code)"; exit 1; }
-echo "5 consecutive 200s"
+[ $ok -ge 5 ] || { echo "ERROR: GET /api/v1/users/1 not stable (last status $code)"; exit 1; }
+echo "GET /api/v1/users/1: 5 consecutive 200s"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST http://localhost/api/v1/orders \
+         -H 'Content-Type: application/json' -d '{"userId":1,"item":"smoke-test"}' || true)
+[ "$code" = 201 ] || { echo "ERROR: POST /api/v1/orders returned $code, expected 201"; exit 1; }
+echo "POST /api/v1/orders: 201"
 done_step "smoke test"
 
 echo
