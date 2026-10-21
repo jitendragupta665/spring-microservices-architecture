@@ -4,3 +4,17 @@ kind: Kustomization
 # ingress-ready=true (the control-plane, which owns hostPort 80/443 via kind-cluster.yaml).
 resources:
   - deploy.yaml
+# Job spec.template is immutable, so Argo CD cannot patch these Jobs in place
+# ("field is immutable"). Run them as Sync hooks instead: Argo deletes the old Job
+# and creates a fresh one on every sync. Same idea as the Helm chart's
+# pre-install/pre-upgrade hooks with before-hook-creation.
+patches:
+  - target:
+      kind: Job
+      name: ingress-nginx-admission-(create|patch)
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/hook: Sync
+          argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
