@@ -1,22 +1,13 @@
+# Local run without Kubernetes. Service discovery is the same as in the cluster: plain DNS names.
+# Compose puts every service on one network where the service name resolves to its container,
+# so http://user-service:8080 works here exactly like the Kubernetes Service name (ADR-0006).
 services:
-
-  eureka:
-    build:
-      context: ./discovery-server
-      additional_contexts:
-        parent: ./shop-parent   # shared parent POM
-    container_name: eureka
-    ports:
-      - "8761:8761"
 
   user-service:
     build:
       context: ./user-service
       additional_contexts:
         parent: ./shop-parent   # shared parent POM
-    container_name: user-service
-    depends_on:
-      - eureka
     ports:
       - "8080:8080"
 
@@ -25,9 +16,7 @@ services:
       context: ./order-service
       additional_contexts:
         parent: ./shop-parent   # shared parent POM
-    container_name: order-service
     depends_on:
-      - eureka
       - user-service
     ports:
       - "8081:8081"
@@ -37,9 +26,7 @@ services:
       context: ./api-gateway
       additional_contexts:
         parent: ./shop-parent   # shared parent POM
-    container_name: api-gateway
     depends_on:
-      - eureka
       - user-service
       - order-service
     ports:

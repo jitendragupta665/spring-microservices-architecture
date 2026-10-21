@@ -1,6 +1,7 @@
 package com.example.order_service;
 
 import com.example.order_service.client.UserClient;
+import com.example.order_service.domain.UserServiceUnavailableException;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -11,8 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -29,33 +29,36 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * INTEGRATION test: the real order-service (full Spring context, real RestTemplate with its
- * timeouts, real Spring Cloud LoadBalancer) talks over real HTTP to a STUB user-service.
+ * INTEGRATION test: the real order-service (full Spring context, real RestClient with its
+ * timeouts, real JSON and error mapping) talks over real HTTP to a STUB user-service.
  *
- * The stub is the JDK's built-in HttpServer (no extra library): we decide per test whether
- * "user-service" answers normally, fails with 500, or is too slow. Eureka is switched off;
- * the load balancer finds USER-SERVICE through a static list (simple discovery) pointing at
- * the stub. This is how you test failure cases that are hard to produce with real services.
+ * The stub is the JDK's built-in HttpServer (no extra library): each test decides whether
+ * "user-service" knows the user, says 404, fails with 500, or is too slow. The client finds it
+ * through clients.user-service.base-url, exactly as it finds http://user-service:8080 in
+ * Kubernetes (ADR-0006): no registry involved.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class UserServiceCallIntegrationTest {
 
-    enum Mode { OK, ERROR_500, SLOW_3S }
+    enum Mode { FOUND, NOT_FOUND, ERROR_500, SLOW_3S }
 
     private static HttpServer stub;
-    private static volatile Mode mode = Mode.OK;
+    private static volatile Mode mode = Mode.FOUND;
+    private static volatile String lastPath;
 
     @BeforeAll
     static void startStub() throws IOException {
         stub = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        stub.createContext("/user", exchange -> {
+        stub.createContext("/", exchange -> {
+            lastPath = exchange.getRequestURI().getPath();
             try {
                 switch (mode) {
-                    case OK -> reply(exchange, 200, "stub-user");
+                    case FOUND -> reply(exchange, 200, "{\"id\":1,\"name\":\"stub\",\"age\":1}");
+                    case NOT_FOUND -> reply(exchange, 404, "{\"status\":404}");
                     case ERROR_500 -> reply(exchange, 500, "boom");
                     case SLOW_3S -> {           // longer than order-service's 2 s read timeout
                         Thread.sleep(3000);
-                        reply(exchange, 200, "too late");
+                        reply(exchange, 200, "{}");
                     }
                 }
             } catch (InterruptedException e) {
@@ -75,6 +78,7 @@ class UserServiceCallIntegrationTest {
 
     private static void reply(com.sun.net.httpserver.HttpExchange ex, int status, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().add("Content-Type", "application/json");
         ex.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = ex.getResponseBody()) {
             os.write(bytes);
@@ -83,9 +87,7 @@ class UserServiceCallIntegrationTest {
 
     @DynamicPropertySource
     static void wireStub(DynamicPropertyRegistry registry) {
-        registry.add("eureka.client.enabled", () -> "false");
-        registry.add("spring.cloud.discovery.client.simple.instances[USER-SERVICE][0].uri",
-                () -> "http://localhost:" + stub.getAddress().getPort());
+        registry.add("clients.user-service.base-url", () -> "http://localhost:" + stub.getAddress().getPort());
     }
 
     @Autowired
@@ -96,21 +98,31 @@ class UserServiceCallIntegrationTest {
 
     @BeforeEach
     void reset() {
-        mode = Mode.OK;
+        mode = Mode.FOUND;
+        lastPath = null;
     }
 
     // ---- the client on its own --------------------------------------------------------------
 
     @Test
-    void returnsWhatUserServiceAnswers() {
-        assertThat(userClient.getUser()).isEqualTo("stub-user");
+    void callsTheVersionedUserPath() {
+        assertThat(userClient.userExists(1)).isTrue();
+        assertThat(lastPath).isEqualTo("/api/v1/users/1");
     }
 
     @Test
-    void userService500BecomesHttpServerErrorException() {
+    void user404MeansTheUserDoesNotExist() {
+        mode = Mode.NOT_FOUND;
+
+        assertThat(userClient.userExists(1)).isFalse();
+    }
+
+    @Test
+    void user500IsUnavailableNotNotFound() {
+        // A broken user-service must never be reported as "no such user".
         mode = Mode.ERROR_500;
 
-        assertThatThrownBy(userClient::getUser).isInstanceOf(HttpServerErrorException.class);
+        assertThatThrownBy(() -> userClient.userExists(1)).isInstanceOf(UserServiceUnavailableException.class);
     }
 
     @Test
@@ -118,11 +130,11 @@ class UserServiceCallIntegrationTest {
         mode = Mode.SLOW_3S;
         long start = System.nanoTime();
 
-        assertThatThrownBy(userClient::getUser).isInstanceOf(ResourceAccessException.class);
+        assertThatThrownBy(() -> userClient.userExists(1)).isInstanceOf(UserServiceUnavailableException.class);
 
         long tookMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
-        // RestConfig sets readTimeout=2000 ms. Without it this call would hang for the full 3 s
-        // (or forever against a stuck server) and hold an order-service thread the whole time.
+        // UserClientConfig sets readTimeout=2000 ms. Without it this call would hang for the full
+        // 3 s (or forever against a stuck server) and hold an order-service thread the whole time.
         assertThat(tookMs).isBetween(1_900L, 2_900L);
     }
 
@@ -132,11 +144,10 @@ class UserServiceCallIntegrationTest {
         try (ServerSocket s = new ServerSocket(0)) {   // grab a free port, then close it: nothing listens there
             deadPort = s.getLocalPort();
         }
-        org.springframework.web.client.RestTemplate plain = new org.springframework.web.client.RestTemplate();
+        UserClient toNowhere = new UserClient(RestClient.create("http://localhost:" + deadPort));
         long start = System.nanoTime();
 
-        assertThatThrownBy(() -> plain.getForObject("http://localhost:" + deadPort + "/user", String.class))
-                .isInstanceOf(ResourceAccessException.class);
+        assertThatThrownBy(() -> toNowhere.userExists(1)).isInstanceOf(UserServiceUnavailableException.class);
 
         // "Connection refused" comes back immediately; the 1 s connect timeout matters when the
         // host does not answer at all (e.g. a dead pod IP), which a unit test can't reproduce.
@@ -146,27 +157,48 @@ class UserServiceCallIntegrationTest {
     // ---- the whole order-service over HTTP ---------------------------------------------------
 
     @Test
-    void getOrderEndToEndWhenUserServiceIsHealthy() throws Exception {
-        HttpResponse<String> res = callOrder();
+    void createThenReadAnOrderEndToEnd() throws Exception {
+        HttpResponse<String> created = post("{\"userId\":1,\"item\":\"book\"}");
 
-        assertThat(res.statusCode()).isEqualTo(200);
-        assertThat(res.body()).isEqualTo("Order created for -> stub-user");
+        assertThat(created.statusCode()).isEqualTo(201);
+        String location = created.headers().firstValue("Location").orElseThrow();
+        assertThat(location).matches("/api/v1/orders/\\d+");
+        assertThat(created.body()).contains("\"item\":\"book\"");
+
+        HttpResponse<String> read = send(HttpRequest.newBuilder(uri(location)).build());
+        assertThat(read.statusCode()).isEqualTo(200);
+        assertThat(read.body()).isEqualTo(created.body());
     }
 
     @Test
-    void getOrderTodayReturns500WhenUserServiceFails() throws Exception {
-        // CHARACTERIZATION test: it pins down CURRENT behaviour, not desired behaviour.
-        // Today a user-service failure becomes a generic 500 for the caller. The resilience
-        // phase (Resilience4j: retry, circuit breaker, fallback) will change this on purpose,
-        // and this test will be updated to the new contract (e.g. 503 + clear message).
-        mode = Mode.ERROR_500;
+    void unknownUserIs422() throws Exception {
+        mode = Mode.NOT_FOUND;
 
-        assertThat(callOrder().statusCode()).isEqualTo(500);
+        assertThat(post("{\"userId\":1,\"item\":\"book\"}").statusCode()).isEqualTo(422);
     }
 
-    private HttpResponse<String> callOrder() throws Exception {
-        return HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create("http://localhost:" + orderServicePort + "/order")).build(),
-                HttpResponse.BodyHandlers.ofString());
+    @Test
+    void userServiceFailureIs503NotA500() throws Exception {
+        // Before this change every user-service failure surfaced as a generic 500. Now the
+        // contract says: the dependency is down, retry later (503 + Retry-After).
+        mode = Mode.ERROR_500;
+
+        HttpResponse<String> res = post("{\"userId\":1,\"item\":\"book\"}");
+        assertThat(res.statusCode()).isEqualTo(503);
+        assertThat(res.headers().firstValue("Retry-After")).contains("5");
+    }
+
+    private HttpResponse<String> post(String json) throws Exception {
+        return send(HttpRequest.newBuilder(uri("/api/v1/orders"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json)).build());
+    }
+
+    private URI uri(String path) {
+        return URI.create("http://localhost:" + orderServicePort + path);
+    }
+
+    private static HttpResponse<String> send(HttpRequest request) throws Exception {
+        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
     }
 }
