@@ -45,3 +45,25 @@ jobs:
         # Block scalar (|): the shell line can contain ": " without breaking YAML
         run: |
           echo "Built \`${{ matrix.service }}:${TAG}\` (event: ${{ github.event_name }})" >> "$GITHUB_STEP_SUMMARY"
+
+  # After every merge to main: delete app images that are not running, not pinned in Git,
+  # and not from the last 3 main commits. See scripts/lab-cleanup.sh for the rules.
+  cleanup:
+    name: cleanup old images
+    needs: build                       # only after ALL 4 builds succeeded
+    if: github.event_name == 'push'
+    runs-on: [self-hosted, linux, kind-lab]
+    concurrency:
+      group: lab-cleanup               # never two cleanups at the same time
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Prune old lab images
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          # Fetch the LATEST main, not just this run's commit: a newer merge may already have
+          # loaded its images, and they must be in the keep set.
+          git fetch --depth=30 origin main
+          scripts/lab-cleanup.sh --apply
