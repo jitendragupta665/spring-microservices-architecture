@@ -1,35 +1,128 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":dependencyDashboard"],
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard"
+  ],
   "timezone": "Asia/Kolkata",
-  "schedule": ["before 9am on monday"],
+  "schedule": [
+    "before 9am on monday"
+  ],
   "prConcurrentLimit": 5,
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
+  "customManagers": [
+    {
+      "description": "shop-parent security override <tomcat.version> pins org.apache.tomcat.embed:tomcat-embed-core",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)shop-parent/pom\\.xml$/"
+      ],
+      "matchStrings": [
+        "<tomcat\\.version>(?<currentValue>[^<]+)</tomcat\\.version>"
+      ],
+      "datasourceTemplate": "maven",
+      "depNameTemplate": "org.apache.tomcat.embed:tomcat-embed-core"
+    },
+    {
+      "description": "shop-parent security override <jackson-2-bom.version> pins com.fasterxml.jackson:jackson-bom",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)shop-parent/pom\\.xml$/"
+      ],
+      "matchStrings": [
+        "<jackson-2-bom\\.version>(?<currentValue>[^<]+)</jackson-2-bom\\.version>"
+      ],
+      "datasourceTemplate": "maven",
+      "depNameTemplate": "com.fasterxml.jackson:jackson-bom"
+    },
+    {
+      "description": "shop-parent security override <jackson-bom.version> pins tools.jackson:jackson-bom",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)shop-parent/pom\\.xml$/"
+      ],
+      "matchStrings": [
+        "<jackson-bom\\.version>(?<currentValue>[^<]+)</jackson-bom\\.version>"
+      ],
+      "datasourceTemplate": "maven",
+      "depNameTemplate": "tools.jackson:jackson-bom"
+    },
+    {
+      "description": "shop-parent security override <freemarker.version> pins org.freemarker:freemarker",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)shop-parent/pom\\.xml$/"
+      ],
+      "matchStrings": [
+        "<freemarker\\.version>(?<currentValue>[^<]+)</freemarker\\.version>"
+      ],
+      "datasourceTemplate": "maven",
+      "depNameTemplate": "org.freemarker:freemarker"
+    }
+  ],
   "packageRules": [
     {
       "description": "Small, safe updates (patch + minor) grouped into one weekly PR",
-      "matchUpdateTypes": ["patch", "minor"],
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
       "groupName": "non-major dependencies"
     },
     {
       "description": "Major upgrades (e.g. Spring Boot 5) always get their own PR and need a careful look",
-      "matchUpdateTypes": ["major"],
-      "labels": ["dependencies", "major"]
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "labels": [
+        "dependencies",
+        "major"
+      ]
     },
     {
       "description": "Spring Boot and Spring Cloud move together: one PR for the pair",
-      "matchPackageNames": ["org.springframework.boot:**", "org.springframework.cloud:**"],
+      "matchPackageNames": [
+        "org.springframework.boot:**",
+        "org.springframework.cloud:**"
+      ],
       "groupName": "spring boot and cloud"
     },
     {
-      "description": "Our own app images are deployed by commit tag via GitOps, not by Renovate",
-      "matchPackageNames": ["localhost:5001/**", "eureka", "user-service", "order-service", "api-gateway"],
+      "description": "Security overrides must stay on the line Spring Boot was tested with: patch bumps only",
+      "matchPackageNames": [
+        "org.apache.tomcat.embed:tomcat-embed-core",
+        "com.fasterxml.jackson:jackson-bom",
+        "tools.jackson:jackson-bom",
+        "org.freemarker:freemarker"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Our own artifacts: app images are deployed by commit tag via GitOps, and com.example:shop-parent lives in this repo, not in Maven Central",
+      "matchPackageNames": [
+        "localhost:5001/**",
+        "eureka",
+        "user-service",
+        "order-service",
+        "api-gateway",
+        "com.example:**"
+      ],
       "enabled": false
     }
   ],
   "vulnerabilityAlerts": {
-    "description": "Security fixes skip the weekly schedule and open immediately",
-    "labels": ["dependencies", "security"],
-    "schedule": ["at any time"]
+    "labels": [
+      "dependencies",
+      "security"
+    ],
+    "schedule": [
+      "at any time"
+    ]
   }
 }
