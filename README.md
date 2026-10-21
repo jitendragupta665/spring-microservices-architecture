@@ -16,7 +16,7 @@ localhost:80 -> ingress-nginx -> api-gateway -> order-service -> user-service
 
 | Service | Port | What it does today |
 | --- | --- | --- |
-| api-gateway | 8085 | Routes `/order/**` and `/user/**`; exposes only `/actuator/health` and `/actuator/info` |
+| api-gateway | 8085 | Routes `/order/**` and `/user/**`. Images built from PR #12 onward expose only `/actuator/health` and `/actuator/info`; check the deployed tag in `k8s/apps/kustomization.yaml` |
 | order-service | 8081 | `GET /order` calls user-service (1 s connect / 2 s read timeouts) |
 | user-service | 8080 | `GET /user` returns a placeholder string |
 | discovery-server | 8761 | Eureka registry |
@@ -53,7 +53,14 @@ git worktree remove /tmp/pinned
 
 kubectl create namespace argocd
 kubectl apply -n argocd --server-side -k k8s/platform/argocd   # Argo CD
+kubectl wait --for=condition=Established crd/applications.argoproj.io --timeout=120s
+kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=300s
 kubectl apply -f k8s/argocd/root.yaml                          # Argo CD deploys everything else from Git
+
+# root creates the child Applications asynchronously; wait until they exist and are Healthy
+until kubectl -n argocd get application shop ingress-nginx >/dev/null 2>&1; do sleep 5; done
+kubectl -n argocd wait application/ingress-nginx application/shop \
+  --for=jsonpath='{.status.health.status}'=Healthy --timeout=600s
 curl http://localhost/order/order
 ```
 
