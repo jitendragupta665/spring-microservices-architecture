@@ -14,3 +14,4 @@ An ADR records one significant decision: the problem, the options we considered,
 | [0002](0002-renovate-dependency-updates.md) | Automated dependency updates with Renovate | Accepted | 2026-10-21 |
 | [0003](0003-ci-security-scanning.md) | Vulnerability and secret scanning as CI merge gates | Accepted | 2026-10-21 |
 | [0004](0004-calico-cni.md) | Calico as the lab's CNI, installed by the bootstrap script | Accepted | 2026-10-22 |
+| [0005](0005-shop-default-deny-network-policies.md) | Default-deny NetworkPolicies for the shop namespace | Accepted | 2026-10-22 |

@@ -1,0 +1,122 @@
+# Zero-trust networking for the shop namespace: nothing talks to anything unless a rule below
+# allows it. Enforced by Calico (k8s/platform/calico, ADR-0004).
+#
+# How NetworkPolicy works (Kubernetes rules, not Calico-specific):
+#   - A pod selected by ANY policy for a direction (Ingress/Egress) is "isolated" for that
+#     direction: only traffic some policy allows gets through. Policies only ever ADD allows.
+#   - A connection needs BOTH sides to agree: egress allowed on the caller AND ingress allowed
+#     on the callee. Replies of an allowed connection are always allowed (connection tracking).
+#   - Rules match pods by LABEL (app: ...), never by IP, so they survive pod restarts.
+#   - Kubelet health probes come from the node itself; Calico always allows node -> local pod.
+#
+# Allowed traffic (everything else in/out of `shop` is dropped):
+#   ingress-nginx  -> api-gateway   :8085
+#   api-gateway    -> order-service :8081, user-service :8080
+#   order-service  -> user-service  :8080
+#   gateway, order, user -> eureka  :8761  (registration + lookups)
+#   every shop pod -> CoreDNS       :53    (name resolution)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: shop
+spec:
+  podSelector: {}                  # every pod in the namespace
+  policyTypes: [Ingress, Egress]   # no rules listed => nothing allowed in either direction
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: shop
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels: {app: api-gateway}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:                        # only the ingress controller (the cluster's front door)
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: ingress-nginx}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/component: controller
+      ports: [{protocol: TCP, port: 8085}]
+  egress:
+    - to: [{podSelector: {matchLabels: {app: order-service}}}]
+      ports: [{protocol: TCP, port: 8081}]
+    - to: [{podSelector: {matchLabels: {app: user-service}}}]
+      ports: [{protocol: TCP, port: 8080}]
+    - to: [{podSelector: {matchLabels: {app: eureka}}}]
+      ports: [{protocol: TCP, port: 8761}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: order-service
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels: {app: order-service}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{podSelector: {matchLabels: {app: api-gateway}}}]
+      ports: [{protocol: TCP, port: 8081}]
+  egress:
+    - to: [{podSelector: {matchLabels: {app: user-service}}}]
+      ports: [{protocol: TCP, port: 8080}]
+    - to: [{podSelector: {matchLabels: {app: eureka}}}]
+      ports: [{protocol: TCP, port: 8761}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: user-service
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels: {app: user-service}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: api-gateway}}
+        - podSelector: {matchLabels: {app: order-service}}
+      ports: [{protocol: TCP, port: 8080}]
+  egress:
+    - to: [{podSelector: {matchLabels: {app: eureka}}}]
+      ports: [{protocol: TCP, port: 8761}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: eureka
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels: {app: eureka}
+  policyTypes: [Ingress, Egress]   # egress: none (eureka.client.register-with-eureka=false)
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: api-gateway}}
+        - podSelector: {matchLabels: {app: order-service}}
+        - podSelector: {matchLabels: {app: user-service}}
+      ports: [{protocol: TCP, port: 8761}]
