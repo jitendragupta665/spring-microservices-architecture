@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-namespace.yaml
+  - eureka.yaml
+  - user-service.yaml
+  - order-service.yaml
+  - api-gateway.yaml
+  - ingress.yaml
+# Single place that decides which build runs in the cluster.
+# newTag = first 7 chars of the main commit that CI built and loaded into kind.
+images:
+  - name: eureka
+    newTag: "0012bbf"
+  - name: user-service
+    newTag: "0012bbf"
+  - name: order-service
+    newTag: "0012bbf"
+  - name: api-gateway
+    newTag: "0012bbf"
