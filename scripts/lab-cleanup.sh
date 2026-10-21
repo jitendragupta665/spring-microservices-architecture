@@ -28,6 +28,10 @@ KCTX=${KCTX:-kind-$CLUSTER}      # always query the SAME cluster we prune, never
 CACHE_MAX=${CACHE_MAX:-3gb}      # docker 29+: `builder prune --max-used-space` (older CLIs: --keep-storage)
 SERVICES="eureka user-service order-service api-gateway"
 SVC_RE="^($(echo $SERVICES | tr ' ' '|')):"
+REGISTRY=${REGISTRY:-localhost:5001}
+# One image can carry several names: eureka:abc1234, docker.io/library/eureka:abc1234,
+# localhost:5001/eureka:abc1234. Keep decisions use the short form; deletions use the full name.
+short() { sed -e 's#^docker.io/library/##' -e "s#^${REGISTRY}/##"; }
 KUSTOMIZATION=${KUSTOMIZATION:-k8s/apps/kustomization.yaml}
 
 run() { if $APPLY; then "$@"; else echo "  [dry-run] $*"; fi; }
@@ -38,7 +42,7 @@ run() { if $APPLY; then "$@"; else echo "  [dry-run] $*"; fi; }
 # ---- 1. build the KEEP set -------------------------------------------------
 in_use=$(kubectl --context "$KCTX" get pods -A \
            -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' \
-         | sed 's#^docker.io/library/##' | sort -u)
+         | short | sort -u)
 [ -n "$in_use" ] || { echo "ERROR: no running images found in $KCTX, refusing to prune"; exit 1; }
 
 # Pin comes from the LATEST main (fetched), not this run's checkout: an older run that finishes
@@ -64,9 +68,10 @@ is_kept() { grep -qxF "$1" <<<"$keep"; }
 
 # ---- 2. Docker host ---------------------------------------------------------
 echo "== docker host"
-host_imgs=$(docker images --format '{{.Repository}}:{{.Tag}}' | awk -v re="$SVC_RE" '$0 ~ re')
+host_imgs=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>' || true)
 for img in $host_imgs; do
-  is_kept "$img" || run docker rmi "$img"     # with several tags, rmi only untags this one
+  s=$(short <<<"$img"); grep -qE "$SVC_RE" <<<"$s" || continue
+  is_kept "$s" || run docker rmi "$img"     # with several tags, rmi only untags this one
 done
 
 # ---- 3. kind nodes (containerd inside each node container) ------------------
@@ -74,13 +79,13 @@ nodes=$(kind get nodes --name "$CLUSTER")
 [ -n "$nodes" ] || { echo "ERROR: no nodes for kind cluster $CLUSTER"; exit 1; }
 for node in $nodes; do
   echo "== node $node"
-  node_imgs=$(docker exec "$node" crictl images | awk 'NR>1{print $1":"$2}' \
-              | sed 's#^docker.io/library/##' | awk -v re="$SVC_RE" '$0 ~ re')
-  for img in $node_imgs; do
+  node_imgs=$(docker exec "$node" crictl images | awk 'NR>1{print $1":"$2}')
+  for ref in $node_imgs; do
+    img=$(short <<<"$ref"); grep -qE "$SVC_RE" <<<"$img" || continue
     # NOT `crictl rmi`: CRI RemoveImage deletes the image ID with ALL its tags, which would also
     # remove a kept tag pointing at the same (unchanged) image. `ctr images rm` deletes only
     # this one name; containerd garbage-collects the content once no name references it.
-    is_kept "$img" || run docker exec "$node" ctr -n k8s.io images rm "docker.io/library/$img"
+    is_kept "$img" || run docker exec "$node" ctr -n k8s.io images rm "$ref"
   done
 done
 

@@ -2,6 +2,12 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: lab
+# containerd on every node reads per-registry config from /etc/containerd/certs.d.
+# scripts/registry-up.sh then adds localhost:5001 -> kind-registry (the local image registry).
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
 nodes:
   - role: control-plane
     # Lets an ingress controller on this node receive traffic from the laptop's localhost:80/443

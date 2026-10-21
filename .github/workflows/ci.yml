@@ -44,6 +44,14 @@ jobs:
       - name: Build + test (multi-stage Docker build)
         run: docker build -t ${{ matrix.service }}:${TAG} ./${{ matrix.dir }}
 
+      - name: Push image to local registry (main only)
+        # Registry = durable source of images: a rebuilt cluster pulls from it (no `kind load` needed).
+        # Created by scripts/registry-up.sh; nodes resolve localhost:5001 via containerd hosts.toml.
+        if: github.event_name != 'pull_request'
+        run: |
+          docker tag ${{ matrix.service }}:${TAG} localhost:5001/${{ matrix.service }}:${TAG}
+          docker push localhost:5001/${{ matrix.service }}:${TAG}
+
       - name: Load image into kind cluster (main only)
         if: github.event_name != 'pull_request'
         run: kind load docker-image ${{ matrix.service }}:${TAG} --name lab
