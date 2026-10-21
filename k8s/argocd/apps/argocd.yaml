@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  # Deliberately NO resources-finalizer: deleting this Application (or removing this file)
+  # must never cascade-delete Argo CD itself.
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jitendragupta665/spring-microservices-architecture.git
+    targetRevision: main
+    path: k8s/platform/argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false    # a bad render must not delete Argo CD's own objects; prune by hand after upgrades
+      selfHeal: true  # manual edits to Argo CD's config are reverted to Git
+    syncOptions:
+      - ServerSideApply=true   # Argo CD CRDs exceed the client-side last-applied annotation limit;
+                               # also matches how it was installed (kubectl apply --server-side)
