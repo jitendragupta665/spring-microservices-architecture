@@ -82,15 +82,20 @@
       ]
     },
     {
-      "description": "Spring Boot and Spring Cloud move together: one PR for the pair",
+      "description": "Spring Boot, Spring Cloud and the shop-parent security overrides move together: one PR, never split by update type (a split pair fails Spring Cloud's startup compatibility check)",
       "matchPackageNames": [
         "org.springframework.boot:**",
-        "org.springframework.cloud:**"
+        "org.springframework.cloud:**",
+        "org.apache.tomcat.embed:tomcat-embed-core",
+        "com.fasterxml.jackson:jackson-bom",
+        "tools.jackson:jackson-bom",
+        "org.freemarker:freemarker"
       ],
-      "groupName": "spring boot and cloud"
+      "groupName": "spring boot and cloud",
+      "separateMajorMinor": false
     },
     {
-      "description": "Security overrides must stay on the line Spring Boot was tested with: patch bumps only",
+      "description": "Overrides should stay on the line Spring Boot was tested with: a minor/major jump waits for a click on the Dependency Dashboard instead of opening a PR (security fixes still open immediately: vulnerabilityAlerts skips this approval)",
       "matchPackageNames": [
         "org.apache.tomcat.embed:tomcat-embed-core",
         "com.fasterxml.jackson:jackson-bom",
@@ -101,7 +106,7 @@
         "major",
         "minor"
       ],
-      "enabled": false
+      "dependencyDashboardApproval": true
     },
     {
       "description": "Our own artifacts: app images are deployed by commit tag via GitOps, and com.example:shop-parent lives in this repo, not in Maven Central",
@@ -123,6 +128,7 @@
     ],
     "schedule": [
       "at any time"
-    ]
+    ],
+    "prConcurrentLimit": 3
   }
 }
