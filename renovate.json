@@ -2,7 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":dependencyDashboard"
+    ":dependencyDashboard",
+    "docker:pinDigests"
   ],
   "timezone": "Asia/Kolkata",
   "schedule": [
@@ -26,7 +27,7 @@
       "depNameTemplate": "org.apache.tomcat.embed:tomcat-embed-core"
     },
     {
-      "description": "shop-parent security override <jackson-2-bom.version> pins com.fasterxml.jackson:jackson-bom",
+      "description": "shop-parent security override <jackson-2-bom.version>: tracked as jackson-databind (the module GitHub advisories name) so Jackson security alerts map to it; Jackson publishes the BOM with the same version",
       "customType": "regex",
       "managerFilePatterns": [
         "/(^|/)shop-parent/pom\\.xml$/"
@@ -35,10 +36,10 @@
         "<jackson-2-bom\\.version>(?<currentValue>[^<]+)</jackson-2-bom\\.version>"
       ],
       "datasourceTemplate": "maven",
-      "depNameTemplate": "com.fasterxml.jackson:jackson-bom"
+      "depNameTemplate": "com.fasterxml.jackson.core:jackson-databind"
     },
     {
-      "description": "shop-parent security override <jackson-bom.version> pins tools.jackson:jackson-bom",
+      "description": "shop-parent security override <jackson-bom.version>: tracked as jackson-databind (the module GitHub advisories name) so Jackson security alerts map to it; Jackson publishes the BOM with the same version",
       "customType": "regex",
       "managerFilePatterns": [
         "/(^|/)shop-parent/pom\\.xml$/"
@@ -47,7 +48,7 @@
         "<jackson-bom\\.version>(?<currentValue>[^<]+)</jackson-bom\\.version>"
       ],
       "datasourceTemplate": "maven",
-      "depNameTemplate": "tools.jackson:jackson-bom"
+      "depNameTemplate": "tools.jackson.core:jackson-databind"
     },
     {
       "description": "shop-parent security override <freemarker.version> pins org.freemarker:freemarker",
@@ -87,19 +88,31 @@
         "org.springframework.boot:**",
         "org.springframework.cloud:**",
         "org.apache.tomcat.embed:tomcat-embed-core",
-        "com.fasterxml.jackson:jackson-bom",
-        "tools.jackson:jackson-bom",
+        "com.fasterxml.jackson.core:jackson-databind",
+        "tools.jackson.core:jackson-databind",
         "org.freemarker:freemarker"
       ],
       "groupName": "spring boot and cloud",
       "separateMajorMinor": false
     },
     {
+      "description": "A minor/major Spring Boot or Spring Cloud jump only works with a compatible partner release (Boot X needs Cloud train Y). Renovate cannot require both to exist, so these wait for a human click on the Dependency Dashboard after checking the Spring Cloud compatibility table. Patch updates flow automatically.",
+      "matchPackageNames": [
+        "org.springframework.boot:**",
+        "org.springframework.cloud:**"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
       "description": "Overrides should stay on the line Spring Boot was tested with: a minor/major jump waits for a click on the Dependency Dashboard instead of opening a PR (security fixes still open immediately: vulnerabilityAlerts skips this approval)",
       "matchPackageNames": [
         "org.apache.tomcat.embed:tomcat-embed-core",
-        "com.fasterxml.jackson:jackson-bom",
-        "tools.jackson:jackson-bom",
+        "com.fasterxml.jackson.core:jackson-databind",
+        "tools.jackson.core:jackson-databind",
         "org.freemarker:freemarker"
       ],
       "matchUpdateTypes": [
