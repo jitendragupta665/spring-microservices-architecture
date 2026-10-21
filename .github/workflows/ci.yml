@@ -10,6 +10,13 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# main: one run at a time, in order. Build -> kind load -> cleanup of merge A must finish before
+# merge B starts, otherwise A's cleanup can delete images B just built (shared Docker host + cluster).
+# PRs: a new push cancels that PR's older run (saves runner time).
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main-pipeline' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: build ${{ matrix.service }}
