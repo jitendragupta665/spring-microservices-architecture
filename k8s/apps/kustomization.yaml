@@ -11,10 +11,10 @@ resources:
 # newTag = first 7 chars of the main commit that CI built and loaded into kind.
 images:
   - name: eureka
-    newTag: "0012bbf"
+    newTag: "8aa77ff"
   - name: user-service
-    newTag: "0012bbf"
+    newTag: "8aa77ff"
   - name: order-service
-    newTag: "0012bbf"
+    newTag: "8aa77ff"
   - name: api-gateway
-    newTag: "0012bbf"
+    newTag: "8aa77ff"
