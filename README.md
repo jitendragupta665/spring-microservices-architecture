@@ -40,14 +40,24 @@ Prerequisites: Docker, kind, kubectl.
 
 ```bash
 kind create cluster --config k8s/kind-cluster.yaml
+
+# A new cluster has no app images: there is no registry yet (phase 2), so build the exact
+# commit pinned in k8s/apps/kustomization.yaml and load it into the kind nodes.
+TAG=$(awk '/newTag:/{gsub(/"/,"",$2); print $2; exit}' k8s/apps/kustomization.yaml)
+git worktree add /tmp/pinned "$TAG"
+for pair in eureka:discovery-server user-service:user-service order-service:order-service api-gateway:api-gateway; do
+  img=${pair%%:*}; dir=${pair#*:}
+  docker build -t "$img:$TAG" "/tmp/pinned/$dir" && kind load docker-image "$img:$TAG" --name lab
+done
+git worktree remove /tmp/pinned
+
 kubectl create namespace argocd
 kubectl apply -n argocd --server-side -k k8s/platform/argocd   # Argo CD
 kubectl apply -f k8s/argocd/root.yaml                          # Argo CD deploys everything else from Git
 curl http://localhost/order/order
 ```
 
-The app images are only in kind's node caches today, so a brand-new cluster cannot pull them yet.
-A local registry (phase 2) fixes that.
+The loop assumes every service is pinned to the same tag, which is true today.
 
 ## How a change ships
 
