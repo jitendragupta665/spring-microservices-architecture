@@ -57,12 +57,22 @@ jobs:
         # CVE databases. Policy: report HIGH + CRITICAL in the job summary; FAIL only on a CRITICAL
         # that already has a fix (--ignore-unfixed), so the fix is always "upgrade X to Y".
         # Runs before the push step: a failing image never reaches the registry.
-        # One cache volume per runner: 4 parallel jobs never write the same vulnerability DB.
-        # --timeout 15m: the default 5m is too short for the first DB download on a busy laptop.
+        #
+        # Laptop-friendly: ONE shared database (~1 GB) for all runners, not one per job.
+        #  1. Update it under an exclusive file lock, so 4 parallel jobs never download or write
+        #     it at the same time (the first job downloads, the others just wait, then see it fresh).
+        #  2. Scan with --skip-*-update: the DB is only read, so the 4 scans can run in parallel.
+        #     --cache-backend memory keeps per-image scan results in RAM instead of a shared file.
         run: |
-          scan() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                     -v "trivy-cache-${RUNNER_NAME}:/root/.cache" "$TRIVY_IMAGE" \
-                     image --quiet --timeout 15m --scanners vuln --ignore-unfixed "$@" "${{ matrix.service }}:${TAG}"; }
+          trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                      -v trivy-cache:/root/.cache "$TRIVY_IMAGE" "$@"; }
+          (
+            flock 9
+            trivy image --quiet --timeout 15m --download-db-only
+            trivy image --quiet --timeout 15m --download-java-db-only
+          ) 9>"$HOME/.trivy-db.lock"
+          scan() { trivy image --quiet --timeout 15m --skip-db-update --skip-java-db-update \
+                     --cache-backend memory --scanners vuln --ignore-unfixed "$@" "${{ matrix.service }}:${TAG}"; }
           {
             echo "### Trivy: \`${{ matrix.service }}:${TAG}\` (HIGH and CRITICAL with a fix available)"
             echo '```'
