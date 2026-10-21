@@ -76,6 +76,35 @@ http://localhost:8080, user `admin`, password from
 4. A PR that changes the tag in `k8s/apps/kustomization.yaml` is the deploy request; Argo CD
    syncs the cluster to `main`.
 
+## Release history
+
+The project grew step by step, and every earlier state is kept, so you can check out the system
+exactly as it was at any stage. Tags are fixed snapshots. The `release/*` branch adds a README
+that explains that version.
+
+| Release | Where | Architecture | Highlights |
+|---|---|---|---|
+| **v1 Docker Compose** (Feb 2026) | tag [`v1.0-docker-compose`](../../tree/v1.0-docker-compose), branch [`release/v1-docker-compose`](../../tree/release/v1-docker-compose) | 4 containers on one Docker network | Netflix Eureka (client-side discovery), Spring Cloud Gateway, one Dockerfile per service |
+| **v2 Kubernetes + GitOps** (Oct 2026) | tag [`v2.0-kubernetes-gitops`](../../tree/v2.0-kubernetes-gitops) | kind cluster (1 control plane + 2 workers), ingress-nginx, Argo CD | CI with tests and coverage, Trivy and gitleaks gates, Renovate, shared parent POM, local registry, one-command rebuild, Calico, default-deny NetworkPolicies, ADR-0001 to ADR-0005 |
+| **v3 Domain v1** (in progress, `main`) | `main` | Same platform, Eureka removed | Kubernetes DNS discovery (ADR-0006), REST API v1 with problem JSON (ADR-0007); PostgreSQL and hexagonal design next |
+
+v1 was itself built in five tagged steps:
+
+| Tag | What it added |
+|---|---|
+| [`stage-1-localhost`](../../tree/stage-1-localhost) | order-service calls user-service on `localhost` |
+| [`stage-2-docker`](../../tree/stage-2-docker) | Each service in a container; calls use the container name |
+| [`stage-3-eureka`](../../tree/stage-3-eureka) | Eureka registry; `@LoadBalanced RestTemplate` calls `http://USER-SERVICE` |
+| [`stage-4-gateway`](../../tree/stage-4-gateway) | Spring Cloud Gateway on 8085 as the single entry point |
+| [`v1.0-docker-compose`](../../tree/v1.0-docker-compose) | `docker-compose.yml` runs all four with one command |
+
+```bash
+git checkout stage-3-eureka              # look around, then:
+git checkout main
+```
+
+Old versions are kept for learning only: they have known vulnerabilities and are not maintained.
+
 ## Roadmap
 
 | Phase | Goal |
