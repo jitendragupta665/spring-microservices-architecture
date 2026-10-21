@@ -2,6 +2,10 @@
 # ---------- Stage 1: build the JAR (needs the full JDK + Maven) ----------
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
+# The shared parent POM (Java/Spring versions) lives outside this folder. It arrives through a
+# second build context named "parent" (docker build --build-context parent=./shop-parent ...)
+# and lands at ../shop-parent, where <relativePath> in pom.xml points.
+COPY --from=parent pom.xml /shop-parent/pom.xml
 COPY pom.xml .
 COPY src ./src
 # Cache mount keeps ~/.m2 between builds on the same machine, so dependencies are
