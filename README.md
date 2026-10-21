@@ -28,50 +28,44 @@ localhost:80 -> ingress-nginx -> api-gateway -> order-service -> user-service
 | `*/` (one folder per service) | Spring Boot service, multi-stage `Dockerfile` (tests run during the image build) |
 | `shop-parent/pom.xml` | Shared Maven parent: the ONE place that sets Java, Spring Boot, Spring Cloud and security-patched library versions for every service. Docker builds receive it as a second build context (`--build-context parent=./shop-parent`) |
 | `.github/workflows/ci.yml` | CI: build and test every service on PRs; on `main` also push `<service>:<sha7>` to the local registry and clean up old images |
-| `k8s/kind-cluster.yaml` | Local cluster: 1 control-plane + 2 workers, ports 80/443 mapped to the laptop |
+| `k8s/kind-cluster.yaml` | Local cluster: 1 control-plane + 2 workers, ports 80/443 mapped to the laptop, no default CNI |
 | `k8s/apps/` | Application manifests (namespace `shop`); image tags pinned in `kustomization.yaml` |
-| `k8s/platform/` | ingress-nginx and Argo CD, deployed by Argo CD itself |
+| `k8s/platform/` | Calico (installed by `lab-up.sh`), ingress-nginx and Argo CD (deployed by Argo CD itself) |
 | `k8s/argocd/` | App-of-apps: `root.yaml` (applied once) and the child Applications |
+| `scripts/lab-up.sh`, `scripts/lab-down.sh` | Rebuild / delete the whole lab with one command |
 | `scripts/registry-up.sh` | Local image registry `kind-registry` on `localhost:5001`, wired into every kind node |
 | `scripts/lab-cleanup.sh` | Deletes old CI images from the host, the nodes and the registry (keeps running, pinned and last 3 main builds) |
 | `docker-compose.yml` | Legacy local setup from before Kubernetes; not maintained |
 
 ## Run the lab
 
-Prerequisites: Docker, kind, kubectl.
+Prerequisites: Docker, kind, kubectl, git, curl.
 
 ```bash
-kind create cluster --config k8s/kind-cluster.yaml
-scripts/registry-up.sh        # local registry on localhost:5001, wired into every node
-
-# The registry keeps its images in a Docker volume, so they survive a cluster rebuild.
-# First run only (empty registry): build the exact commit pinned in k8s/apps/kustomization.yaml
-# and push any image that is missing.
-TAG=$(awk '/newTag:/{gsub(/"/,"",$2); print $2; exit}' k8s/apps/kustomization.yaml)
-ACCEPT='application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
-git worktree add /tmp/pinned "$TAG"
-for pair in eureka:discovery-server user-service:user-service order-service:order-service api-gateway:api-gateway; do
-  img=${pair%%:*}; dir=${pair#*:}
-  curl -sf -H "Accept: $ACCEPT" "http://localhost:5001/v2/$img/manifests/$TAG" >/dev/null && continue
-  ctx=(); [ -d /tmp/pinned/shop-parent ] && ctx=(--build-context parent=/tmp/pinned/shop-parent)
-  docker build "${ctx[@]}" -t "localhost:5001/$img:$TAG" "/tmp/pinned/$dir" && docker push "localhost:5001/$img:$TAG"
-done
-git worktree remove /tmp/pinned
-
-kubectl create namespace argocd
-kubectl apply -n argocd --server-side -k k8s/platform/argocd   # Argo CD
-kubectl wait --for=condition=Established crd/applications.argoproj.io --timeout=120s
-kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=300s
-kubectl apply -f k8s/argocd/root.yaml                          # Argo CD deploys everything else from Git
-
-# root creates the child Applications asynchronously; wait until they exist and are Healthy
-until kubectl -n argocd get application shop ingress-nginx >/dev/null 2>&1; do sleep 5; done
-kubectl -n argocd wait application/ingress-nginx application/shop \
-  --for=jsonpath='{.status.health.status}'=Healthy --timeout=600s
-curl http://localhost/order/order
+scripts/lab-up.sh     # build everything from Git, with a timing per step
+scripts/lab-down.sh   # delete the cluster (the registry and its images are kept)
 ```
 
-The loop assumes every service is pinned to the same tag, which is true today.
+`lab-up.sh` is idempotent: re-running it on a running lab only verifies. What it does, in order:
+
+| Step | Why it is in the script and not in Argo CD |
+| --- | --- |
+| kind cluster (`k8s/kind-cluster.yaml`, default CNI disabled) | Argo CD needs a cluster to run in |
+| Calico CNI (`k8s/platform/calico`) | No pod (Argo CD included) can start before pod networking exists |
+| Local registry (`scripts/registry-up.sh`) | Nodes must be able to pull images before anything deploys |
+| Images for the pinned tag | Built from that commit only if the registry volume does not have them |
+| Argo CD + `k8s/argocd/root.yaml` | Bootstrap; from here Argo CD deploys ingress-nginx and the shop from Git |
+| Smoke test | 5 consecutive `200` from `http://localhost/order/order` |
+
+Disaster-recovery drill (2026-10-21, laptop with 8 GB RAM): `lab-down.sh` then `lab-up.sh` brought
+`/order/order` back in **523 s**: cluster 53 s, Calico + nodes 183 s (image pulls),
+registry 3 s, images 0 s (already in the registry volume), Argo CD 131 s, GitOps sync 115 s,
+smoke test 32 s.
+
+Argo CD UI: `kubectl --context kind-lab -n argocd port-forward svc/argocd-server 8080:80`, then
+http://localhost:8080, user `admin`, password from
+`kubectl --context kind-lab -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d`
+(a new one after every rebuild).
 
 ## How a change ships
 
